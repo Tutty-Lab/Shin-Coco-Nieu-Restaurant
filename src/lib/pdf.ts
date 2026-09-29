@@ -271,34 +271,74 @@ const SZ_HEAD = ["Datum / Wochentag", "Arbeitsbeginn", "Arbeitsende", "Pause", "
  * ab ~Tag 23 abgeschnitten). Selbst gezeichnet haben wir volle Kontrolle über die
  * Zeilenhöhe – ein ganzer Monat passt garantiert auf EINE Seite – und es gibt
  * keine Fremd-Bibliothek mehr, die Zeilen verschluckt.
+ *
+ * Tage mit ZWEI Diensten (mittags und abends): jeder Dienst bekommt einen
+ * eigenen Streifen mit eigenem Innenabstand, getrennt durch eine feine Linie –
+ * wie auf der Seite im Browser. Früher standen beide Dienste in der Höhe einer
+ * normalen Zeile und die Trennlinie berührte die Schrift.
+ *
+ * `maxBottom`: bis hierhin darf die Tabelle reichen (darunter liegen Summe und
+ * Unterschriften). Werden es durch viele geteilte Tage zu viele Millimeter,
+ * schrumpfen Zeilen und Schrift gleichmäßig – die Seite bleibt EINE Seite.
  */
 function drawStundenzettelTable(
   doc: jsPDF,
   startY: number,
   rows: DayRow[],
   totalMinutes: number,
+  maxBottom: number,
 ): void {
-  const FS = 6.5; // Schriftgröße (pt)
-  const LH = 2.5; // Höhe je Textzeile (mm)
-  const PADV = 0.7; // Innenabstand oben/unten (mm)
-  const headH = LH + 2 * PADV;
-  const footH = LH + 2 * PADV;
+  const BASE_FS = 6.5; // Schriftgröße (pt)
+  const BASE_LH = 2.5; // Höhe je Textzeile (mm)
+  const BASE_PADV = 0.7; // Innenabstand oben/unten (mm)
+  const MIN_FS = 5.5;
 
-  doc.setFontSize(FS);
   doc.setFont("helvetica", "normal");
 
   // Zellinhalte in Zeilen zerlegen (Bemerkung ggf. auf Spaltenbreite umbrechen).
-  const bodyLines = rows.map((r) =>
-    r.cells.map((c, ci) => {
-      const parts = T(c).split("\n");
-      if (ci === 5 && T(c)) {
-        return parts.flatMap((p) => (p ? (doc.splitTextToSize(p, SZ_COLS[ci].w - 3) as string[]) : [""]));
-      }
-      return parts;
-    }),
-  );
-  const rowMax = bodyLines.map((cells) => Math.max(1, ...cells.map((l) => l.length)));
-  const rowH = rowMax.map((n) => n * LH + 2 * PADV);
+  // Die Umbruchbreite hängt an der Schrift – deshalb einmal je Schriftgröße.
+  const zerlegen = (fs: number) => {
+    doc.setFontSize(fs);
+    return rows.map((r) =>
+      r.cells.map((c, ci) => {
+        const parts = T(c).split("\n");
+        if (ci === 5 && T(c)) {
+          return parts.flatMap((p) => (p ? (doc.splitTextToSize(p, SZ_COLS[ci].w - 3) as string[]) : [""]));
+        }
+        return parts;
+      }),
+    );
+  };
+
+  /** Zeilenhöhen für gegebene Maße: geteilte Tage bekommen je Dienst einen vollen Streifen. */
+  const hoehen = (lines: string[][][], lh: number, padv: number) =>
+    rows.map((r, ri) => {
+      const maxLines = Math.max(1, ...lines[ri].map((l) => l.length));
+      const normal = maxLines * lh + 2 * padv;
+      return r.shiftCount >= 2 ? Math.max(normal, r.shiftCount * (lh + 2 * padv)) : normal;
+    });
+
+  // Erst in voller Größe rechnen; passt es nicht bis maxBottom, gleichmäßig verkleinern.
+  let FS = BASE_FS;
+  let LH = BASE_LH;
+  let PADV = BASE_PADV;
+  let bodyLines = zerlegen(FS);
+  let rowH = hoehen(bodyLines, LH, PADV);
+  const gesamt = (rh: number[], lh: number, padv: number) =>
+    2 * (lh + 2 * padv) + rh.reduce((a, b) => a + b, 0);
+  const verfuegbar = maxBottom - startY;
+  const natuerlich = gesamt(rowH, LH, PADV);
+  if (natuerlich > verfuegbar) {
+    const s = verfuegbar / natuerlich;
+    LH = BASE_LH * s;
+    PADV = BASE_PADV * s;
+    FS = Math.max(MIN_FS, BASE_FS * s);
+    bodyLines = zerlegen(FS);
+    rowH = hoehen(bodyLines, LH, PADV);
+  }
+  const headH = LH + 2 * PADV;
+  const footH = LH + 2 * PADV;
+  doc.setFontSize(FS);
 
   const drawCellText = (
     text: string,
@@ -315,11 +355,25 @@ function drawStundenzettelTable(
     doc.text(text, tx, yBaseline, { align: col.align });
   };
 
+  /** Grundlinie einer Textzeile, deren Mitte bei `mitte` liegen soll. */
+  const grundlinie = (mitte: number) => mitte + LH * 0.22;
+
+  /** Mehrere Zeilen als Block senkrecht mittig zwischen `oben` und `oben + hoehe`. */
+  const block = (lines: string[], ci: number, oben: number, hoehe: number) => {
+    const start = oben + (hoehe - lines.length * LH) / 2;
+    lines.forEach((ln, j) => {
+      const yBase = grundlinie(start + j * LH + LH / 2);
+      if (ci === 0 && j === 0) drawCellText(ln, ci, yBase, "bold", INK);
+      else if (ci === 0 || ci === 5) drawCellText(ln, ci, yBase, "normal", MUTED);
+      else drawCellText(ln, ci, yBase, "normal", INK);
+    });
+  };
+
   // ---- Kopfzeile ----
   let y = startY;
   doc.setFillColor(...HEAD_FILL);
   doc.rect(SZ_LEFT, y, SZ_RIGHT - SZ_LEFT, headH, "F");
-  SZ_HEAD.forEach((h, ci) => drawCellText(h, ci, y + PADV + LH * 0.72, "bold", INK));
+  SZ_HEAD.forEach((h, ci) => drawCellText(h, ci, grundlinie(y + headH / 2), "bold", INK));
   y += headH;
 
   // ---- Datenzeilen ----
@@ -331,24 +385,30 @@ function drawStundenzettelTable(
       doc.setFillColor(...SHADE_FILL);
       doc.rect(SZ_LEFT, y, SZ_RIGHT - SZ_LEFT, h, "F");
     }
-    // Ca sáng/ca chiều: dünne Trennlinie zwischen den Diensten (Spalten 1–4).
+    const cells = bodyLines[ri];
+
     if (r.shiftCount >= 2) {
+      // Jeder Dienst ein eigener Streifen; Datum/Wochentag über die ganze Zeile.
+      const n = r.shiftCount;
+      const streifen = h / n;
+      // Bemerkung: eine Zeile gehört zum ersten Dienst (wie im Browser); ein
+      // längerer Text steht mittig über der ganzen Zeile, dann ohne Linie dort.
+      const bemerkungKurz = cells[5].filter(Boolean).length <= 1;
       doc.setDrawColor(...DIVIDER);
       doc.setLineWidth(0.2);
-      for (let k = 1; k < r.shiftCount; k++) {
-        const yy = y + (h * k) / r.shiftCount;
-        doc.line(SZ_COLS[1].x, yy, SZ_COLS[4].x + SZ_COLS[4].w, yy);
+      for (let k = 1; k < n; k++) {
+        const yy = y + streifen * k;
+        doc.line(SZ_COLS[1].x, yy, bemerkungKurz ? SZ_RIGHT : SZ_COLS[5].x, yy);
       }
+      block(cells[0], 0, y, h);
+      for (let ci = 1; ci <= 4; ci++) {
+        cells[ci].forEach((ln, j) => block([ln], ci, y + j * streifen, streifen));
+      }
+      if (bemerkungKurz) block(cells[5].filter(Boolean), 5, y, streifen);
+      else block(cells[5], 5, y, h);
+    } else {
+      cells.forEach((lines, ci) => block(lines, ci, y, h));
     }
-    bodyLines[ri].forEach((lines, ci) => {
-      const offset = (rowMax[ri] - lines.length) / 2; // vertikal zentrieren
-      lines.forEach((ln, j) => {
-        const yBase = y + PADV + (offset + j) * LH + LH * 0.72;
-        if (ci === 0 && j === 0) drawCellText(ln, ci, yBase, "bold", INK);
-        else if (ci === 0 || ci === 5) drawCellText(ln, ci, yBase, "normal", MUTED);
-        else drawCellText(ln, ci, yBase, "normal", INK);
-      });
-    });
     y += h;
   });
 
@@ -356,8 +416,8 @@ function drawStundenzettelTable(
   const footTop = y;
   doc.setFillColor(...HEAD_FILL);
   doc.rect(SZ_LEFT, y, SZ_RIGHT - SZ_LEFT, footH, "F");
-  drawCellText("Gesamtstunden", 0, y + PADV + LH * 0.72, "bold", INK);
-  drawCellText(minutesToDecimalHours(totalMinutes), 4, y + PADV + LH * 0.72, "bold", INK);
+  drawCellText("Gesamtstunden", 0, grundlinie(y + footH / 2), "bold", INK);
+  drawCellText(minutesToDecimalHours(totalMinutes), 4, grundlinie(y + footH / 2), "bold", INK);
   y += footH;
   const tableBottom = y;
 
@@ -394,7 +454,9 @@ function drawStundenzettel(
 
   const { rows, totalMinutes } = stundenzettelRowsFor(schedule, employee, dates);
 
-  drawStundenzettelTable(doc, infoY, rows, totalMinutes);
+  // Unter der Tabelle liegen Summe (ab pageH − 30) und Unterschriften – die
+  // Tabelle hört spätestens 5 mm darüber auf.
+  drawStundenzettelTable(doc, infoY, rows, totalMinutes, doc.internal.pageSize.getHeight() - 35);
 
   // Zusammenfassung + Unterschriften: FESTE Positionen im reservierten Band am
   // Seitenende – unabhängig davon, wo die Tabelle endet (keine Kollision mehr).
