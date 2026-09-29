@@ -604,13 +604,29 @@ function drawGrid(
 }
 
 /** Eine Schicht als zwei Textzeilen: Zeitspanne und Stunden/Pause. */
-function shiftLines(shift: Shift | undefined, closed: boolean): string[] {
-  if (!shift) return [closed ? "-" : "frei"];
-  const hours = minutesToDecimalHours(shift.paidMinutes, 2).replace(",00", "");
-  return [
-    `${minutesToTime(shift.startMinutes)}-${minutesToTime(shift.endMinutes)}`,
-    `${hours}h${shift.pauseMinutes > 0 ? ` · P${shift.pauseMinutes}` : ""}`,
-  ];
+/**
+ * Zellinhalt für einen Tag. Ein Tag kann ZWEI Dienste haben (mittags und
+ * abends) – beide müssen auf den Aushang, sonst fehlt die halbe Schicht.
+ *
+ * Die Zeilenhöhe im Gitter ist fest, deshalb:
+ *  - ein Dienst  -> Uhrzeit + Stunden (zwei Zeilen),
+ *  - zwei Dienste -> beide Uhrzeiten (zwei Zeilen); die Stundenzahl kommt nur
+ *    dazu, wo das Blatt Platz für eine dritte Zeile hat (withHours).
+ */
+function shiftLines(shifts: Shift[], closed: boolean, withHours = false): string[] {
+  if (shifts.length === 0) return [closed ? "-" : "frei"];
+  const sorted = [...shifts].sort((a, b) => a.startMinutes - b.startMinutes);
+  const stunden = (minutes: number) => minutesToDecimalHours(minutes, 2).replace(",00", "");
+  if (sorted.length === 1) {
+    const shift = sorted[0];
+    return [
+      `${minutesToTime(shift.startMinutes)}-${minutesToTime(shift.endMinutes)}`,
+      `${stunden(shift.paidMinutes)}h${shift.pauseMinutes > 0 ? ` · P${shift.pauseMinutes}` : ""}`,
+    ];
+  }
+  const zeiten = sorted.map((s) => `${minutesToTime(s.startMinutes)}-${minutesToTime(s.endMinutes)}`);
+  const gesamt = sorted.reduce((sum, s) => sum + s.paidMinutes, 0);
+  return withHours ? [...zeiten, `${stunden(gesamt)}h`] : zeiten;
 }
 
 /**
@@ -664,8 +680,12 @@ function drawDienstplan(
     opts.employeeIds && opts.employeeIds.length
       ? schedule.employees.filter((e) => opts.employeeIds!.includes(e.id))
       : schedule.employees;
-  const byKey = new Map<string, Shift>();
-  for (const s of schedule.shifts) byKey.set(`${s.employeeId}#${s.date}`, s);
+  // Eine LISTE je Person und Tag – an geteilten Tagen sind es zwei Dienste.
+  const byKey = new Map<string, Shift[]>();
+  for (const s of schedule.shifts) {
+    const key = `${s.employeeId}#${s.date}`;
+    byKey.set(key, [...(byKey.get(key) ?? []), s]);
+  }
 
   const holidays = publicHolidays(schedule.year);
   const holidayNames = publicHolidayNames(schedule.year);
@@ -696,13 +716,14 @@ function drawDienstplan(
       "Summe",
     ];
     const body: GridRow[] = employees.map((employee) => {
-      const own = opts.dates.map((d) => byKey.get(`${employee.id}#${d}`));
-      const total = own.reduce((sum, s) => sum + (s?.paidMinutes ?? 0), 0);
+      const own = opts.dates.map((d) => byKey.get(`${employee.id}#${d}`) ?? []);
+      const total = own.reduce((sum, list) => sum + list.reduce((a, s) => a + s.paidMinutes, 0), 0);
       return {
         shaded: false,
         cells: [
           [employee.name],
-          ...opts.dates.map((d, i) => shiftLines(own[i], closedOn(d))),
+          // Hochformat: hier ist Platz für die dritte Zeile mit den Stunden.
+          ...opts.dates.map((d, i) => shiftLines(own[i], closedOn(d), true)),
           [`${minutesToDecimalHours(total, 2).replace(",00", "")}h`],
         ],
       };
@@ -738,7 +759,7 @@ function drawDienstplan(
         cells: [
           [format(parseIsoDate(d), "dd.MM.yyyy")],
           [WEEKDAY_LABELS_DE[weekdayKeyOf(parseIsoDate(d))] + (holiday ? ` · ${holiday}` : "")],
-          ...employees.map((e) => shiftLines(byKey.get(`${e.id}#${d}`), closed)),
+          ...employees.map((e) => shiftLines(byKey.get(`${e.id}#${d}`) ?? [], closed)),
         ],
       };
     });
