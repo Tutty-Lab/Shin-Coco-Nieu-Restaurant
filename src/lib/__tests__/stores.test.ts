@@ -251,6 +251,9 @@ describe("alter Stand ohne personKey", () => {
     );
     expect(withSharedPersonDefaults(edited, storeById("shin"))[0].maxDaysPerWeek).toBeUndefined();
     // Anderer Mensch unter derselben id: nicht verknüpfen.
+    // Im Tab Nhân viên bewusst gelöst: nicht wieder verbinden.
+    const unlinked = oldShin().map((e) => (e.id === "shin-1" ? { ...e, personKey: "" } : e));
+    expect(withSharedPersonDefaults(unlinked, storeById("shin"))[0].personKey).toBe("");
     const renamed = oldShin().map((e) => (e.id === "shin-1" ? { ...e, name: "Jemand Neues" } : e));
     expect(withSharedPersonDefaults(renamed, storeById("shin"))[0].personKey).toBeUndefined();
   });

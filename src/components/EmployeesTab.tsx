@@ -7,6 +7,7 @@ import { monthlyTargetMinutesFor } from "../lib/contract";
 import { employmentLabelVi, employmentShortVi } from "../lib/employment";
 import { minutesToShortHours, minutesToTime, timeToMinutes } from "../lib/time";
 import type { WorkHoursConfig } from "../lib/workHours";
+import { currentPartners, linkPatches, type PartnerChoice, type StoreRoster } from "../lib/sharedPerson";
 
 const inputClass =
   "rounded border border-slate-300 px-2 py-1.5 text-sm focus:border-slate-500 focus:outline-none focus:ring-1 focus:ring-slate-500";
@@ -55,9 +56,14 @@ type Draft = {
   holidayDuty: boolean;
   maxDays: string;
   startDate: string; // "yyyy-MM-dd" hoặc "" = từ đầu tháng
+  /** Cùng một người ở quán khác: storeId -> employeeId ("" = không). */
+  partners: PartnerChoice;
 };
 
-function draftFrom(emp?: Employee): Draft {
+/** Ein anderer Laden, wie ihn das Feld „Cũng làm ở quán khác" braucht. */
+type OtherStore = { storeId: string; shortName: string; employees: readonly Employee[]; locked: boolean };
+
+function draftFrom(emp?: Employee, partners: PartnerChoice = {}): Draft {
   return {
     name: emp?.name ?? "",
     employmentType: emp?.employmentType ?? "VOLLZEIT",
@@ -73,12 +79,15 @@ function draftFrom(emp?: Employee): Draft {
     holidayDuty: emp?.requiredOnHolidays ?? false,
     maxDays: emp?.maxDaysPerWeek ? String(emp.maxDaysPerWeek) : "",
     startDate: emp?.startDate ?? "",
+    partners,
   };
 }
 
 /** Tóm tắt các thiết lập „Nâng cao" đang bật (dòng dưới tiêu đề), hoặc null nếu chưa đặt gì. */
-function advancedSummary(d: Draft): string | null {
+function advancedSummary(d: Draft, others: readonly OtherStore[] = []): string | null {
   const parts: string[] = [];
+  const shared = others.filter((o) => d.partners[o.storeId]).map((o) => o.shortName);
+  if (shared.length > 0) parts.push(`cũng làm ở ${shared.join(", ")}`);
   if (d.holidayDuty) parts.push("trực ngày lễ");
   if (d.fixed) parts.push(`ca cố định ${d.fixedStart}–${d.fixedEnd}`);
   if (d.availableWeekdays.length > 0 && d.availableWeekdays.length < WEEKDAY_ORDER.length) {
@@ -132,9 +141,28 @@ function draftToEmployee(d: Draft): Omit<Employee, "id"> {
   };
 }
 
-export function EmployeesTab({ store }: { store: UseScheduleReturn }) {
+export function EmployeesTab({ store, allStores }: { store: UseScheduleReturn; allStores: readonly UseScheduleReturn[] }) {
   const { schedule, openDays, openDates, addEmployee, updateEmployee, removeEmployee } = store;
   const locked = Boolean(schedule.lockedAt);
+
+  const rosters: StoreRoster[] = allStores.map((s) => ({ storeId: s.storeId, employees: s.schedule.employees }));
+  const others: OtherStore[] = allStores
+    .filter((s) => s.storeId !== store.storeId)
+    .map((s) => ({
+      storeId: s.storeId,
+      shortName: s.storeConfig.shortName,
+      employees: s.schedule.employees,
+      locked: Boolean(s.schedule.lockedAt),
+    }));
+  const partnerLabel = (emp: Employee) =>
+    others.filter((o) => currentPartners(rosters, store.storeId, emp)[o.storeId]).map((o) => o.shortName);
+
+  /** personKeys in allen betroffenen Läden setzen bzw. lösen. */
+  const saveLinks = (self: { employeeId: string; name: string; personKey?: string }, choice: PartnerChoice) => {
+    for (const patch of linkPatches(rosters, { storeId: store.storeId, ...self }, choice)) {
+      allStores.find((s) => s.storeId === patch.storeId)?.updateEmployee(patch.employeeId, { personKey: patch.personKey });
+    }
+  };
 
   // null = zu; "new" = anlegen; sonst = die id, die bearbeitet wird.
   const [offen, setOffen] = useState<null | "new" | string>(null);
@@ -189,7 +217,12 @@ export function EmployeesTab({ store }: { store: UseScheduleReturn }) {
                 onClick={() => setOffen(emp.id)}
                 className="w-full text-left rounded-lg border border-slate-200 p-3 flex items-center gap-3 hover:bg-slate-50 active:bg-slate-100 transition-colors"
               >
-                <EmployeeSummaryRow emp={emp} openDates={openDates} workHours={schedule.workHours} />
+                <EmployeeSummaryRow
+                  emp={emp}
+                  openDates={openDates}
+                  workHours={schedule.workHours}
+                  sharedWith={partnerLabel(emp)}
+                />
                 <span className="text-slate-300 text-lg leading-none">›</span>
               </button>
             </li>
@@ -211,12 +244,19 @@ export function EmployeesTab({ store }: { store: UseScheduleReturn }) {
         <EmployeeSheet
           key={bearbeitet?.id ?? "new"}
           employee={bearbeitet}
+          others={others}
+          partners={currentPartners(rosters, store.storeId, bearbeitet)}
           openDates={openDates}
           workHours={schedule.workHours}
           onClose={() => setOffen(null)}
-          onSave={(felder) => {
-            if (bearbeitet) updateEmployee(bearbeitet.id, felder);
-            else addEmployee(felder);
+          onSave={(felder, partners) => {
+            if (bearbeitet) {
+              updateEmployee(bearbeitet.id, felder);
+              saveLinks({ employeeId: bearbeitet.id, name: felder.name, personKey: bearbeitet.personKey }, partners);
+            } else {
+              const id = addEmployee(felder);
+              if (id) saveLinks({ employeeId: id, name: felder.name }, partners);
+            }
             setOffen(null);
           }}
           onDelete={
@@ -238,10 +278,13 @@ function EmployeeSummaryRow({
   emp,
   openDates,
   workHours,
+  sharedWith,
 }: {
   emp: Employee;
   openDates: readonly string[];
   workHours: WorkHoursConfig;
+  /** Kurznamen der anderen Läden, in denen dieselbe Person arbeitet. */
+  sharedWith: string[];
 }) {
   const monatMin = monthlyTargetMinutesFor(emp, openDates, workHours);
   const monatH = monatMin / 60;
@@ -263,6 +306,9 @@ function EmployeeSummaryRow({
           · {monatH > 0 ? `${minutesToShortHours(monatMin)} · ` : ""}
           <span className={info.ok ? "" : "text-rose-600"}>{info.text}</span>
         </span>
+        {sharedWith.length > 0 ? (
+          <span className="rounded bg-sky-50 text-sky-800 px-1.5 py-0.5">cũng làm ở {sharedWith.join(", ")}</span>
+        ) : null}
         {emp.requiredOnHolidays ? (
           <span className="rounded bg-amber-50 text-amber-800 px-1.5 py-0.5">trực ngày lễ</span>
         ) : null}
@@ -283,6 +329,8 @@ function EmployeeSummaryRow({
  */
 function EmployeeSheet({
   employee,
+  others,
+  partners,
   openDates,
   workHours,
   onClose,
@@ -290,13 +338,15 @@ function EmployeeSheet({
   onDelete,
 }: {
   employee?: Employee;
+  others: readonly OtherStore[];
+  partners: PartnerChoice;
   openDates: readonly string[];
   workHours: WorkHoursConfig;
   onClose: () => void;
-  onSave: (felder: Omit<Employee, "id">) => void;
+  onSave: (felder: Omit<Employee, "id">, partners: PartnerChoice) => void;
   onDelete?: () => void;
 }) {
-  const [d, setD] = useState<Draft>(() => draftFrom(employee));
+  const [d, setD] = useState<Draft>(() => draftFrom(employee, partners));
   const [loeschFrage, setLoeschFrage] = useState(false);
 
   const set = <K extends keyof Draft>(k: K, v: Draft[K]) =>
@@ -386,14 +436,14 @@ function EmployeeSheet({
             bei jedem Tastendruck zurücksetzt.
           */}
           <details
-            open={advancedSummary(draftFrom(employee)) !== null}
+            open={advancedSummary(draftFrom(employee, partners), others) !== null}
             className="group rounded-lg border border-slate-200"
           >
             <summary className="flex cursor-pointer list-none items-center justify-between gap-2 px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 [&::-webkit-details-marker]:hidden">
               <span>
                 Nâng cao
-                {advancedSummary(d) && (
-                  <span className="block text-xs font-normal text-slate-500">{advancedSummary(d)}</span>
+                {advancedSummary(d, others) && (
+                  <span className="block text-xs font-normal text-slate-500">{advancedSummary(d, others)}</span>
                 )}
               </span>
               <span className="text-slate-400 transition-transform group-open:rotate-90" aria-hidden="true">›</span>
@@ -498,6 +548,38 @@ function EmployeeSheet({
             </label>
           </div>
 
+          {/* Cùng một người ở quán khác – tạo lịch không xếp hai quán cùng ngày. */}
+          {others.length > 0 && (
+            <div className="border-t border-slate-100 pt-3">
+              <div className="text-xs text-slate-600">Cũng làm ở quán khác</div>
+              <p className="mt-0.5 text-xs text-slate-400">
+                Chọn đúng người này trong danh sách quán kia. Khi tạo lịch, người này không bị xếp hai quán
+                trong cùng một ngày. Nên đặt „Số ngày làm mỗi tuần" ở quán chính để quán kia còn ngày trống.
+              </p>
+              <div className="mt-2 space-y-2">
+                {others.map((o) => (
+                  <label key={o.storeId} className="flex items-center gap-2 text-sm text-slate-700">
+                    <span className="w-20 shrink-0 text-xs text-slate-600">{o.shortName}</span>
+                    <select
+                      className={`${inputClass} flex-1 min-w-0`}
+                      value={d.partners[o.storeId] ?? ""}
+                      disabled={o.locked}
+                      onChange={(e) => set("partners", { ...d.partners, [o.storeId]: e.target.value })}
+                    >
+                      <option value="">— không —</option>
+                      {o.employees.map((e) => (
+                        <option key={e.id} value={e.id}>
+                          {e.name}
+                        </option>
+                      ))}
+                    </select>
+                    {o.locked && <span className="text-xs text-amber-700">quán này đang khoá</span>}
+                  </label>
+                ))}
+              </div>
+            </div>
+          )}
+
           {/* Ngày vào làm (Eintritt) – vào giữa tháng thì không bị báo thiếu giờ. */}
           <div className="border-t border-slate-100 pt-3">
             <label className="block">
@@ -567,7 +649,7 @@ function EmployeeSheet({
                   Huỷ
                 </button>
                 <button
-                  onClick={() => onSave(draftToEmployee(d))}
+                  onClick={() => onSave(draftToEmployee(d), d.partners)}
                   className="rounded bg-slate-900 px-4 py-2 text-sm font-medium text-white hover:bg-slate-700"
                 >
                   Lưu

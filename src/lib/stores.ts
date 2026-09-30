@@ -126,13 +126,15 @@ export function storeById(id: string): StoreConfig {
  * Läden. Fehlt der personKey, übernimmt ein Mitarbeiter mit derselben id und
  * demselben Namen wie in der Startbelegschaft personKey und – nur in diesem
  * einen Schritt – auch maxDaysPerWeek. Danach steht der personKey im Stand, und
- * ein später geleertes „tối đa … ngày/tuần" bleibt leer.
+ * ein später geleertes „tối đa … ngày/tuần" bleibt leer. Löst man die
+ * Verbindung im Tab Nhân viên, steht dort "" statt nichts.
  */
 export function withSharedPersonDefaults(employees: Employee[], store: StoreConfig): Employee[] {
   const starters = new Map(store.sampleEmployees().map((e) => [e.id, e]));
   return employees.map((employee) => {
     const starter = starters.get(employee.id);
-    if (employee.personKey || !starter?.personKey || starter.name !== employee.name) return employee;
+    // "" = im Tab Nhân viên bewusst gelöst – dann nicht wieder verbinden.
+    if (employee.personKey !== undefined || !starter?.personKey || starter.name !== employee.name) return employee;
     return {
       ...employee,
       personKey: starter.personKey,

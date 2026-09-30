@@ -38,6 +38,11 @@ EINE PDF mit den Seiten aller Läden aus.
   einem Tag, an dem er schon im Shin steht, plant Nieu ihn nicht ein – die Orte
   liegen zu weit auseinander. Damit überhaupt Tage frei bleiben, ist er im Shin
   auf 5 Tage je Woche begrenzt.
+- **Wer in mehreren Läden arbeitet, wird im Tab „Nhân viên" verbunden:** unter
+  „Nâng cao" → „Cũng làm ở quán khác" je anderem Laden die Person wählen
+  (`src/lib/sharedPerson.ts`). Beide bekommen denselben `personKey`; „không"
+  löst die Verbindung auf beiden Seiten.
+- **Nieu 37 hat montags geöffnet** (Einstellung im Laden, `closedWeekdays`).
 
 ## Belegschaft (Angabe des Betriebs, Stunden je MONAT)
 

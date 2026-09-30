@@ -311,7 +311,7 @@ function MainApp({ onLogout }: { onLogout: () => void }) {
               {tab === "mitarbeiter" &&
                 stores.map((s) => (
                   <StoreSection key={s.storeId} store={s}>
-                    <EmployeesTab store={s} />
+                    <EmployeesTab store={s} allStores={stores} />
                   </StoreSection>
                 ))}
             </div>
