@@ -23,7 +23,7 @@ import {
 } from "../lib/workHours";
 import { datesOfMonth } from "../lib/demand";
 import { publicHolidays } from "../lib/holidays";
-import { initialScheduleFor, storeById, type StoreConfig } from "../lib/stores";
+import { initialScheduleFor, storeById, withSharedPersonDefaults, type StoreConfig } from "../lib/stores";
 import { contractOpenDays } from "../lib/contract";
 import { weekStartOf } from "../lib/weeks";
 
@@ -68,7 +68,7 @@ function normalizeSchedule(raw: Schedule | undefined, store: StoreConfig): Sched
     month: raw.month ?? base.month,
     workHours: normalizeWorkHours(raw.workHours),
     dateOverrides: Array.isArray(raw.dateOverrides) ? raw.dateOverrides : [],
-    employees: raw.employees ?? [],
+    employees: withSharedPersonDefaults(raw.employees ?? [], store),
     shifts: raw.shifts ?? [],
     lockedAt: raw.lockedAt,
     printedWeeks: Array.isArray(raw.printedWeeks) ? raw.printedWeeks : [],

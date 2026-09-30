@@ -14,7 +14,7 @@ import { generateSchedule } from "../scheduler";
 import { validateSchedule } from "../validation";
 import { analyzeSchedule } from "../analyze";
 import { makeEmployee } from "../sampleData";
-import { STORES, initialScheduleFor, storeById, type StoreConfig } from "../stores";
+import { STORES, initialScheduleFor, storeById, withSharedPersonDefaults, type StoreConfig } from "../stores";
 import { DEFAULT_WORK_HOURS, resolveDay } from "../workHours";
 import { publicHolidays, publicHolidayNames } from "../holidays";
 import { datesOfMonth, parseIsoDate, weekdayKeyOf } from "../demand";
@@ -229,6 +229,30 @@ describe("Drei Filialen", () => {
         expect(maxConsecutiveRun(new Set(byDate.keys())), person).toBeLessThanOrEqual(6);
       }
     }
+  });
+});
+
+describe("alter Stand ohne personKey", () => {
+  // So lag der Shin-Stand vor Nieu 37 in Supabase: ohne personKey und ohne Tagesgrenze.
+  const oldShin = () =>
+    teamOf(storeById("shin")).map(({ personKey: _k, maxDaysPerWeek: _d, ...rest }) => rest as Employee);
+
+  it("übernimmt personKey und 5 Tage je Woche aus der Startbelegschaft", () => {
+    const migrated = withSharedPersonDefaults(oldShin(), storeById("shin"));
+    const baViet = migrated.find((e) => e.id === "shin-1")!;
+    expect(baViet.personKey).toBe("ba-viet-nguyen");
+    expect(baViet.maxDaysPerWeek).toBe(5);
+    expect(migrated.filter((e) => e.personKey)).toHaveLength(1);
+  });
+
+  it("lässt eine spätere Änderung stehen", () => {
+    const edited = oldShin().map((e) =>
+      e.id === "shin-1" ? { ...e, personKey: "ba-viet-nguyen", maxDaysPerWeek: undefined } : e,
+    );
+    expect(withSharedPersonDefaults(edited, storeById("shin"))[0].maxDaysPerWeek).toBeUndefined();
+    // Anderer Mensch unter derselben id: nicht verknüpfen.
+    const renamed = oldShin().map((e) => (e.id === "shin-1" ? { ...e, name: "Jemand Neues" } : e));
+    expect(withSharedPersonDefaults(renamed, storeById("shin"))[0].personKey).toBeUndefined();
   });
 });
 

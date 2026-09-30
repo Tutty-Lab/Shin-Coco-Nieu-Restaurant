@@ -119,6 +119,28 @@ export function storeById(id: string): StoreConfig {
   return STORES.find((s) => s.id === id) ?? STORES[0];
 }
 
+/**
+ * Ältere Stände (gespeichert, bevor Nieu 37 dazukam) kennen noch keinen
+ * personKey. Dann erkennt „Tạo lịch làm việc" nicht, dass Bá Việt Nguyen im
+ * Shin und im Nieu derselbe Mensch ist, und plant ihn am selben Tag in beiden
+ * Läden. Fehlt der personKey, übernimmt ein Mitarbeiter mit derselben id und
+ * demselben Namen wie in der Startbelegschaft personKey und – nur in diesem
+ * einen Schritt – auch maxDaysPerWeek. Danach steht der personKey im Stand, und
+ * ein später geleertes „tối đa … ngày/tuần" bleibt leer.
+ */
+export function withSharedPersonDefaults(employees: Employee[], store: StoreConfig): Employee[] {
+  const starters = new Map(store.sampleEmployees().map((e) => [e.id, e]));
+  return employees.map((employee) => {
+    const starter = starters.get(employee.id);
+    if (employee.personKey || !starter?.personKey || starter.name !== employee.name) return employee;
+    return {
+      ...employee,
+      personKey: starter.personKey,
+      maxDaysPerWeek: employee.maxDaysPerWeek ?? starter.maxDaysPerWeek,
+    };
+  });
+}
+
 /** Startstand einer Filiale: September 2026 mit der Belegschaft aus der Angabe. */
 export function initialScheduleFor(store: StoreConfig): Schedule {
   return {
