@@ -26,17 +26,14 @@ type ScheduleRange = {
 };
 
 export function StundenzettelTab({ stores }: { stores: UseScheduleReturn[] }) {
-  // Beide Filialen laufen im selben Monat (der Kopf steuert beide). Monat und
-  // Wochen kommen deshalb aus der ersten Filiale; ausgegeben wird EINE Datei
-  // mit den Seiten beider Läden.
+  // Alle Filialen laufen im selben Monat (der Kopf steuert alle). Monat und
+  // Wochen kommen deshalb aus der ersten Filiale; ausgegeben wird je Quán eine
+  // EIGENE Datei – der Betrieb wählt oben den Quán (oder eine Person).
   const primary = stores[0];
   const { schedule } = primary;
   const isLocked = stores.some((s) => s.isLocked);
   const unlockMonth = () => {
     for (const s of stores) if (s.isLocked) s.unlockMonth();
-  };
-  const markWeekPrinted = (weekStart: string) => {
-    for (const s of stores) s.markWeekPrinted(weekStart);
   };
   const generate = () => {
     for (const s of stores) s.generate();
@@ -50,9 +47,14 @@ export function StundenzettelTab({ stores }: { stores: UseScheduleReturn[] }) {
   const pageUrl = typeof window === "undefined" ? "" : window.location.href;
   const chromeUrl = inApp.platform === "android" ? chromeIntentUrl(pageUrl) : null;
 
-  // ── Auswahl: WER (eine Person oder der ganze Laden) und WAS ─────────────
-  // who: "all" = ganzer Laden, sonst eine employeeId.
-  const [who, setWho] = useState<string>("all");
+  // ── Auswahl: WER (ein ganzer Quán oder eine Person) und WAS ─────────────
+  // who: "store:<storeId>" = alle Leute DIESES Quán (eine Datei je Quán, auf
+  // Wunsch des Betriebs statt „Tất cả các quán"), sonst "<storeId>:<empId>".
+  // Reihenfolge der Quán-Knöpfe wie vom Betrieb genannt: Coco, Shin, Nieu 37.
+  const STORE_ORDER = ["coco", "shin", "nieu"];
+  const rank = (id: string) => (STORE_ORDER.includes(id) ? STORE_ORDER.indexOf(id) : STORE_ORDER.length);
+  const storeChoices = [...stores].sort((a, b) => rank(a.storeId) - rank(b.storeId));
+  const [who, setWho] = useState<string>(`store:${storeChoices[0].storeId}`);
   // what: "stundenzettel" (Monats-Stundenzettel) | "month" (Dienstplan Monat)
   //       | ein weekStart (Dienstplan dieser Woche).
   const [what, setWhat] = useState<string>("stundenzettel");
@@ -67,7 +69,9 @@ export function StundenzettelTab({ stores }: { stores: UseScheduleReturn[] }) {
   /** Lỗi tạo PDF – hiện ngay trên trang (alert bị trình duyệt nhúng chặn). */
   const [pdfError, setPdfError] = useState<string | null>(null);
   /** Trình duyệt nhúng: PDF đã tạo xong, chờ người dùng bấm Lưu / Chia sẻ. */
-  const [readyPdf, setReadyPdf] = useState<{ blob: Blob; filename: string } | null>(null);
+  // Je Quán eine eigene Datei – im eingebetteten Browser je Datei ein Knopf.
+  const [readyPdfs, setReadyPdfs] = useState<{ blob: Blob; filename: string }[]>([]);
+  const readyPdf = readyPdfs.length > 0;
   const [shareNote, setShareNote] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
 
@@ -77,44 +81,60 @@ export function StundenzettelTab({ stores }: { stores: UseScheduleReturn[] }) {
 
   const monthTag = `${schedule.year}-${String(schedule.month).padStart(2, "0")}`;
 
-  // Für WER: "all" = alle Mitarbeiter BEIDER Filialen, sonst "<storeId>:<empId>".
-  const [whoStoreId, whoEmpId] = who === "all" ? [null, null] : who.split(":");
+  // Für WER: ganzer Quán ("store:<id>") oder eine Person ("<storeId>:<empId>").
+  const wholeStore = who.startsWith("store:");
+  const [whoStoreId, whoEmpId] = wholeStore ? [who.slice("store:".length), null] : who.split(":");
 
   /** Mitarbeiter dieser Filiale, die in den Ausdruck kommen. */
   const chosenFor = (s: UseScheduleReturn): Employee[] => {
-    if (who === "all") return s.schedule.employees;
     if (s.storeId !== whoStoreId) return [];
+    if (wholeStore) return s.schedule.employees;
     return s.schedule.employees.filter((e) => e.id === whoEmpId);
   };
   /** employeeIds für den Dienstplan: undefined = ganze Filiale, [] = gar nicht. */
   const employeeIdsFor = (s: UseScheduleReturn): string[] | undefined => {
-    if (who === "all") return undefined;
     if (s.storeId !== whoStoreId) return [];
+    if (wholeStore) return undefined;
     return [whoEmpId as string];
   };
   const chosenCount = stores.reduce((sum, s) => sum + chosenFor(s).length, 0);
 
   // Für die Vorschau und die Dateinamen: eine konkrete Person.
-  const previewStore = who === "all" ? primary : stores.find((s) => s.storeId === whoStoreId) ?? primary;
-  const previewEmployee =
-    who === "all"
-      ? previewStore.schedule.employees[0] ?? null
-      : previewStore.schedule.employees.find((e) => e.id === whoEmpId) ?? null;
-  const whoTag = who === "all" ? "tat_ca" : safeFileName(previewEmployee?.name ?? who);
+  const previewStore = stores.find((s) => s.storeId === whoStoreId) ?? primary;
+  const previewEmployee = wholeStore
+    ? previewStore.schedule.employees[0] ?? null
+    : previewStore.schedule.employees.find((e) => e.id === whoEmpId) ?? null;
+  const whoTag = wholeStore ? "ca_quan" : safeFileName(previewEmployee?.name ?? who);
 
   const startPdf = () => {
     setPdfBusy(true);
     setPdfError(null);
-    setReadyPdf(null);
+    setReadyPdfs([]);
     setShareNote(null);
   };
   const progress = (current: number, total: number) => {
     if (total > 1) setPdfProgress(`${current}/${total}`);
   };
-  /** Rechner/Chrome/Safari: đã tải thẳng. Trình duyệt nhúng: giữ file để bấm Lưu / Chia sẻ. */
-  const finishPdf = (blob: Blob | null, filename: string) => {
-    if (inApp.inApp && blob) setReadyPdf({ blob, filename });
+  /**
+   * Mỗi quán MỘT file riêng (Shin, Coco, Nieu không gộp chung nữa).
+   * Rechner/Chrome/Safari: tải thẳng lần lượt từng file. Trình duyệt nhúng:
+   * giữ các file lại, mỗi file một nút Lưu / Chia sẻ.
+   */
+  const finishPdfs = async (files: { blob: Blob; filename: string }[]) => {
+    if (inApp.inApp) {
+      setReadyPdfs(files);
+      return;
+    }
+    for (const [i, file] of files.entries()) {
+      // Kleine Pause zwischen den Downloads – sonst verwirft der Browser alle
+      // ausser dem ersten.
+      if (i > 0) await new Promise((resolve) => setTimeout(resolve, 400));
+      deliver(file.blob, file.filename);
+    }
   };
+  /** Tên file của một quán: tên quán đứng đầu, sau đó phần chung. */
+  const fileFor = (s: UseScheduleReturn, rest: string) =>
+    `${rest.split("_")[0]}_${safeFileName(s.storeConfig.shortName)}_${rest.split("_").slice(1).join("_")}`;
   const errorText = (err: unknown) =>
     `Không tạo được PDF: ${err instanceof Error ? err.message : String(err)}`;
 
@@ -125,23 +145,28 @@ export function StundenzettelTab({ stores }: { stores: UseScheduleReturn[] }) {
    * Tabelle plötzlich anders aussieht.
    */
   async function doPdf(filename: string, sz?: { dates?: string[]; label?: string }) {
+    // filename = Muster ohne Quán, z. B. Stundenzettel_tat_ca_2026-10.pdf
     if (chosenCount === 0 || pdfBusy) return;
     startPdf();
     setPdfProgress(chosenCount > 1 ? `1/${chosenCount}` : "");
     // Kurzer Yield, damit „Đang tạo PDF…" zuerst sichtbar wird.
     await new Promise((resolve) => setTimeout(resolve, 0));
     try {
-      const jobs = stores
-        .map((s) => ({ schedule: s.schedule, employees: chosenFor(s) }))
-        .filter((job) => job.employees.length > 0);
-      const doc = await buildStundenzettelPdfFor(
-        jobs,
-        { dates: sz?.dates, periodLabel: sz?.label },
-        progress,
-      );
-      const blob = doc.output("blob");
-      if (!inApp.inApp) await deliver(blob, filename);
-      finishPdf(blob, filename);
+      const files: { blob: Blob; filename: string }[] = [];
+      let done = 0;
+      for (const s of stores) {
+        const employees = chosenFor(s);
+        if (employees.length === 0) continue;
+        const offset = done;
+        const doc = await buildStundenzettelPdfFor(
+          [{ schedule: s.schedule, employees }],
+          { dates: sz?.dates, periodLabel: sz?.label },
+          (current) => progress(offset + current, chosenCount),
+        );
+        done += employees.length;
+        files.push({ blob: doc.output("blob"), filename: fileFor(s, filename) });
+      }
+      await finishPdfs(files);
     } catch (err) {
       setPdfError(errorText(err));
     } finally {
@@ -160,19 +185,23 @@ export function StundenzettelTab({ stores }: { stores: UseScheduleReturn[] }) {
     setPdfProgress("");
     await new Promise((resolve) => setTimeout(resolve, 0));
     try {
-      const jobs = stores
-        .map((s) => ({
-          schedule: s.schedule,
-          dates: range.dates,
-          title: `${s.storeConfig.shortName} · ${range.title}`,
-          employeeIds: employeeIdsFor(s),
-        }))
-        .filter((job) => job.employeeIds?.length !== 0);
-      const doc = buildDienstplanPdfFor(jobs, range.layout);
-      const blob = doc.output("blob");
-      if (!inApp.inApp) await deliver(blob, filename);
-      finishPdf(blob, filename);
-      if (range.weekStart) markWeekPrinted(range.weekStart);
+      const exported = stores.filter((s) => employeeIdsFor(s)?.length !== 0);
+      const files = exported
+        .map((s) => {
+          const doc = buildDienstplanPdfFor(
+            [{
+              schedule: s.schedule,
+              dates: range.dates,
+              title: `${s.storeConfig.shortName} · ${range.title}`,
+              employeeIds: employeeIdsFor(s),
+            }],
+            range.layout,
+          );
+          return { blob: doc.output("blob"), filename: fileFor(s, filename) };
+        });
+      await finishPdfs(files);
+      // Nur der Quán, der wirklich ausgegeben wurde, gilt als gedruckt/gesperrt.
+      if (range.weekStart) for (const s of exported) s.markWeekPrinted(range.weekStart);
     } catch (err) {
       setPdfError(errorText(err));
     } finally {
@@ -182,11 +211,11 @@ export function StundenzettelTab({ stores }: { stores: UseScheduleReturn[] }) {
   }
 
   /** Gọi trực tiếp trong lúc bấm – bảng Chia sẻ cần thao tác người dùng còn "mới". */
-  async function onSharePdf() {
-    if (!readyPdf) return;
-    const result = await sharePdf(readyPdf.blob, readyPdf.filename);
+  async function onSharePdf(file: { blob: Blob; filename: string }) {
+    const result = await sharePdf(file.blob, file.filename);
     if (result === "shared") {
-      setReadyPdf(null);
+      // Đã lưu/gửi file này – các file quán khác vẫn còn nút.
+      setReadyPdfs((list) => list.filter((f) => f !== file));
       setShareNote(null);
     } else if (result !== "cancelled") {
       setShareNote(
@@ -331,8 +360,12 @@ export function StundenzettelTab({ stores }: { stores: UseScheduleReturn[] }) {
                 value={who}
                 onChange={(e) => setWho(e.target.value)}
               >
-                <option value="all">Tất cả (cả quán)</option>
-                {stores.flatMap((s) =>
+                {storeChoices.map((s) => (
+                  <option key={`store:${s.storeId}`} value={`store:${s.storeId}`}>
+                    Quán {s.storeConfig.shortName} (cả quán)
+                  </option>
+                ))}
+                {storeChoices.flatMap((s) =>
                   s.schedule.employees.map((e) => (
                     <option key={`${s.storeId}:${e.id}`} value={`${s.storeId}:${e.id}`}>
                       {s.storeConfig.shortName} · {e.name}
@@ -358,7 +391,7 @@ export function StundenzettelTab({ stores }: { stores: UseScheduleReturn[] }) {
                 ))}
                 <option value="month">Lịch làm việc — cả tháng</option>
                 {weeks.map((w) => {
-                  const printed = stores.every((s) => (s.schedule.printedWeeks ?? []).includes(w.weekStart));
+                  const printed = (previewStore.schedule.printedWeeks ?? []).includes(w.weekStart);
                   return (
                     <option key={w.weekStart} value={w.weekStart}>
                       Lịch làm việc — tuần {w.label}
@@ -411,25 +444,33 @@ export function StundenzettelTab({ stores }: { stores: UseScheduleReturn[] }) {
             <div role="status" className="mt-3 rounded-lg border border-emerald-300 bg-emerald-50 p-3 text-sm text-emerald-950">
               <div className="flex items-start justify-between gap-3">
                 <div>
-                  <div className="font-semibold">PDF đã sẵn sàng</div>
-                  <div className="text-xs break-all">{readyPdf.filename}</div>
+                  <div className="font-semibold">
+                    {readyPdfs.length > 1 ? `${readyPdfs.length} file PDF đã sẵn sàng (mỗi quán một file)` : "PDF đã sẵn sàng"}
+                  </div>
                 </div>
                 <button
                   type="button"
-                  onClick={() => { setReadyPdf(null); setShareNote(null); }}
+                  onClick={() => { setReadyPdfs([]); setShareNote(null); }}
                   className="text-emerald-800 hover:text-emerald-950"
                   aria-label="Đóng"
                 >
                   ✕
                 </button>
               </div>
-              <button
-                type="button"
-                onClick={() => void onSharePdf()}
-                className="mt-2 rounded bg-emerald-700 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-800"
-              >
-                Lưu / Chia sẻ PDF
-              </button>
+              <div className="mt-2 space-y-2">
+                {readyPdfs.map((file) => (
+                  <div key={file.filename} className="flex flex-wrap items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => void onSharePdf(file)}
+                      className="rounded bg-emerald-700 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-800"
+                    >
+                      Lưu / Chia sẻ
+                    </button>
+                    <span className="text-xs break-all">{file.filename}</span>
+                  </div>
+                ))}
+              </div>
               <p className="mt-1 text-xs">
                 Trong bảng chia sẻ chọn <b>Lưu vào Tệp</b> (iPhone) hoặc gửi qua Zalo/Mail.
               </p>
@@ -521,7 +562,7 @@ export function StundenzettelTab({ stores }: { stores: UseScheduleReturn[] }) {
           <>
             <div className="mb-1 text-xs text-slate-500">
               Xem trước bảng chấm công: <b>{previewStore.storeConfig.shortName} · {previewEmployee.name}</b>
-              {who === "all" && " (chọn một người ở ô „Cho ai“ để xem người khác)"}
+              {wholeStore && " (chọn một người ở ô „Cho ai“ để xem người khác)"}
             </div>
             <div className="rounded-lg border border-slate-300 shadow-sm bg-white overflow-x-auto">
               <StundenzettelPage schedule={previewStore.schedule} employee={previewEmployee} />
