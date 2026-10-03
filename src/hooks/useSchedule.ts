@@ -24,6 +24,7 @@ import {
 import { datesOfMonth } from "../lib/demand";
 import { publicHolidays } from "../lib/holidays";
 import { initialScheduleFor, storeById, withSharedPersonDefaults, type StoreConfig } from "../lib/stores";
+import { applyMigrations } from "../lib/migrations";
 import { contractOpenDays } from "../lib/contract";
 import { weekStartOf } from "../lib/weeks";
 
@@ -60,7 +61,9 @@ function overridesToMap(list: DateOverride[]): OverrideMap {
 function normalizeSchedule(raw: Schedule | undefined, store: StoreConfig): Schedule {
   const base = emptySchedule(store);
   if (!raw) return base;
-  return {
+  // Danach die einmaligen Datenänderungen (neue Mitarbeiter usw.) – sie gelten
+  // für den lokalen UND den aus Supabase geladenen Stand.
+  return applyMigrations(store.id, {
     // Firmenname & Adresse kommen aus der Filiale (không cho sửa).
     companyName: store.name,
     address: store.address,
@@ -72,7 +75,8 @@ function normalizeSchedule(raw: Schedule | undefined, store: StoreConfig): Sched
     shifts: raw.shifts ?? [],
     lockedAt: raw.lockedAt,
     printedWeeks: Array.isArray(raw.printedWeeks) ? raw.printedWeeks : [],
-  };
+    migrations: Array.isArray(raw.migrations) ? raw.migrations : [],
+  });
 }
 
 /** Lokaler Stand einer Filiale; beim allerersten Öffnen die Startbelegschaft. */

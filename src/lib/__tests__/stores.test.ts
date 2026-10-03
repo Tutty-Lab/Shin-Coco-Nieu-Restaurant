@@ -20,6 +20,7 @@ import { publicHolidays, publicHolidayNames } from "../holidays";
 import { datesOfMonth, parseIsoDate, weekdayKeyOf } from "../demand";
 import { workingAt } from "../staffing";
 import { maxConsecutiveRun } from "../consecutive";
+import { weekStartOf } from "../weeks";
 
 const MONTHS = [2, 8, 9, 12];
 /** Jede Filiale mit ihrer Belegschaft – die Regeln gelten für alle gleich. */
@@ -123,10 +124,22 @@ describe("Harte Regeln (alle Filialen)", () => {
       const team = teamOf(store);
       const result = validateSchedule(team, shifts, 2026, openDatesOf(2026, month), DEFAULT_WORK_HOURS);
       expect(result.errors.filter((e) => e.severity !== "warning"), `Monat ${month}`).toEqual([]);
+      // Wer wegen des zweiten Jobs auf 5 Tage je Woche begrenzt ist, schafft in
+      // einem kurzen Monat höchstens (begrenzte Tage × 8 h) – Thu Vân im Coco
+      // hat im Februar 2026 nur 21 solche Tage = 168 h bei 173 h Vertrag. Mehr
+      // gibt das Arbeitszeitrecht nicht her; weniger darf es aber nicht sein.
+      const openByWeek = new Map<string, number>();
+      for (const date of openDatesOf(2026, month)) {
+        openByWeek.set(weekStartOf(date), (openByWeek.get(weekStartOf(date)) ?? 0) + 1);
+      }
+      const capacity = (employee: Employee) =>
+        [...openByWeek.values()].reduce((sum, open) => sum + Math.min(open, employee.maxDaysPerWeek ?? 6), 0) * 8 * 60;
       for (const summary of result.summaries) {
-        // Ohne den zweiten Job ist jeder Vertrag erfüllbar; 40,2 h liegen nicht
-        // auf dem 30-Minuten-Raster, deshalb bis 75 Minuten Spielraum.
-        expect(Math.abs(summary.diffMinutes), `${summary.employee.name} ${month}`).toBeLessThanOrEqual(75);
+        // 40,2 h liegen nicht auf dem 30-Minuten-Raster, deshalb bis 75 Minuten Spielraum.
+        const shortfall = Math.max(0, summary.targetMinutes - capacity(summary.employee));
+        const label = `${summary.employee.name} ${month}`;
+        expect(summary.diffMinutes, label).toBeLessThanOrEqual(75);
+        expect(summary.diffMinutes, label).toBeGreaterThanOrEqual(-(shortfall + 75));
       }
     }
   });
@@ -194,7 +207,7 @@ describe("Drei Filialen", () => {
     const all = STORES.flatMap((store) => initialScheduleFor(store).employees);
     expect(new Set(all.map((e) => e.id)).size).toBe(all.length);
     expect(initialScheduleFor(storeById("nieu")).address).toContain("Aalen");
-    expect(initialScheduleFor(storeById("nieu")).employees).toHaveLength(6);
+    expect(initialScheduleFor(storeById("nieu")).employees).toHaveLength(7); // 6 + Thu Vân (Minijob, auch im Coco)
   });
 
   it("Nieu ist erst ab Freitag stark, Shin und Coco schon ab Donnerstag", () => {
@@ -228,7 +241,25 @@ describe("Drei Filialen", () => {
         // Auch über beide Läden zusammen gelten 6 Tage am Stück.
         expect(maxConsecutiveRun(new Set(byDate.keys())), person).toBeLessThanOrEqual(6);
       }
+      expect([...perPerson.keys()].sort()).toEqual(["ba-viet-nguyen", "nguyen-thu-van"]);
     }
+  });
+
+  it("Thu Vân bekommt im September im Nieu jeden freien Tag mit 8 h – nicht 0 h", () => {
+    // Coco plant sie mit 173 h auf 5 Tage je Woche; frei bleibt je Woche nur ein
+    // Tag. Mehr als 4 × 8 h = 32 h gehen im September nicht (8 h je Tag, die
+    // Läden liegen zu weit auseinander für zwei Dienste am selben Tag).
+    // Vorher verwarf der Planer die ganze Woche, weil das Wochensoll (≈ 10 h)
+    // nicht in den einen freien Tag passte – sie stand gar nicht im Plan.
+    const plans = planAll(2026, 9);
+    const coco = plans.get("coco")!.filter((s) => s.employeeId === "coco-1");
+    const nieu = plans.get("nieu")!.filter((s) => s.employeeId === "nieu-7");
+    const cocoDays = new Set(coco.map((s) => s.date));
+    const nieuHours = nieu.reduce((sum, s) => sum + s.paidMinutes, 0) / 60;
+    expect(coco.reduce((sum, s) => sum + s.paidMinutes, 0) / 60).toBe(173);
+    expect(nieu.every((s) => !cocoDays.has(s.date))).toBe(true);
+    expect(nieuHours).toBe(32);
+    expect(nieuHours).toBeLessThanOrEqual(43);
   });
 });
 

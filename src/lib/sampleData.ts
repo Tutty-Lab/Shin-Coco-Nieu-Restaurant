@@ -65,7 +65,13 @@ export function shinEmployees(): Employee[] {
  */
 export function cocoEmployees(): Employee[] {
   return [
-    makeEmployee("coco-1", "Nguyen Thu Van", "VOLLZEIT", 173),
+    {
+      // Arbeitet zusätzlich im Nieu (Minijob 43 h, ab September 2026). Wie bei
+      // Bá Việt im Shin: höchstens 5 Tage je Woche, damit dort Tage frei bleiben.
+      ...makeEmployee("coco-1", "Nguyen Thu Van", "VOLLZEIT", 173),
+      personKey: "nguyen-thu-van",
+      maxDaysPerWeek: 5,
+    },
     makeEmployee("coco-2", "Nguyen Thi Minh Tam", "VOLLZEIT", 173),
     makeEmployee("coco-3", "Duy Phuong Do", "VOLLZEIT", 173),
     makeEmployee("coco-4", "Dinh Trong Huy", "VOLLZEIT", 156),
@@ -82,9 +88,10 @@ export function cocoEmployees(): Employee[] {
  * Kleineres Team (6 Personen) und schwächere Umsätze als Shin/Coco: normal
  * 1.000–1.500 €, starke Tage 3.000 €. Stark sind hier FREITAG bis SONNTAG.
  *
- * Bá Việt Nguyễn arbeitet zusätzlich Vollzeit im Shin – über personKey erkennt
- * der Planer dieselbe Person und legt ihm hier keinen Tag hin, an dem er schon
- * im Shin steht.
+ * Bá Việt Nguyễn (Vollzeit im Shin) und Thu Vân Nguyễn (Vollzeit im Coco)
+ * arbeiten hier zusätzlich als Minijob – über personKey erkennt der Planer
+ * dieselbe Person und legt hier keinen Tag hin, an dem sie schon im anderen
+ * Laden stehen.
  */
 export function nieuEmployees(): Employee[] {
   return [
@@ -94,6 +101,8 @@ export function nieuEmployees(): Employee[] {
     makeEmployee("nieu-4", "Ba Nam Nguyen", "VOLLZEIT", 169),
     makeEmployee("nieu-5", "Xuan Linh Trinh", "VOLLZEIT", 169),
     { ...makeEmployee("nieu-6", "Ba Viet Nguyen", "MINIJOB", 35), personKey: "ba-viet-nguyen" },
+    // Thu Vân arbeitet Vollzeit im Coco – nie am selben Tag in beiden Läden.
+    { ...makeEmployee("nieu-7", "Thu Van Nguyen", "MINIJOB", 43), personKey: "nguyen-thu-van" },
   ];
 }
 

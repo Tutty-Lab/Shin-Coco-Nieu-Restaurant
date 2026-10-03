@@ -270,6 +270,11 @@ function chooseWeek(
   let hi = Math.min(MAX_PAID, base + 3 * SLOT);
   while (hi * preferredCount < target && hi < MAX_PAID) hi += SLOT;
   while (lo * preferredCount > target && lo > MIN_SHIFT) lo -= SLOT;
+  // Mehr Wochensoll als die freien Tage fassen (z. B. Minijob im zweiten Laden,
+  // der nur einen Tag je Woche frei hat): ohne diese Klammer läge lo über hi,
+  // es gäbe keine einzige zulässige Dienstlänge, und die Person bekäme in der
+  // Woche GAR NICHTS statt der möglichen 8 h.
+  if (lo > hi) lo = hi;
 
   const durations = new Set<number>();
   if (fixed) durations.add(fixed);

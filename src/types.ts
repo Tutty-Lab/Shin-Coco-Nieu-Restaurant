@@ -117,4 +117,6 @@ export type Schedule = {
   lockedAt?: string;
   /** Bereits gedruckte Wochen, als ISO-Datum des jeweiligen Montags. */
   printedWeeks?: string[];
+  /** Bereits angewandte einmalige Datenänderungen (siehe lib/migrations.ts). */
+  migrations?: string[];
 };
