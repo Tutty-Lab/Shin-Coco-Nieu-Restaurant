@@ -120,7 +120,7 @@ export function ScheduleTab({ store }: { store: UseScheduleReturn }) {
     return stats;
   }, [dates, schedule.shifts]);
 
-  const hasEmployees = schedule.employees.length > 0;
+  const hasEmployees = store.activeEmployees.length > 0;
 
   return (
     <section>
@@ -303,7 +303,7 @@ export function ScheduleTab({ store }: { store: UseScheduleReturn }) {
               </tr>
             </thead>
             <tbody>
-              {schedule.employees.map((emp) => {
+              {store.activeEmployees.map((emp) => {
                 const sum = summaryByEmp.get(emp.id);
                 const sollMin = monthlyTargetMinutesFor(emp, openDates, schedule.workHours);
                 const diff = sum?.diffMinutes ?? -sollMin;

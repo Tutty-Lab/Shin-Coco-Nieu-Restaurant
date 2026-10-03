@@ -51,6 +51,13 @@ export type Employee = {
    */
   startDate?: string;
   /**
+   * Letzter Arbeitstag (Austritt), ISO "yyyy-MM-dd". Danach wird niemand mehr
+   * eingeplant, und die Tage nach dem Austritt zählen nicht ins Monats-Soll –
+   * wer am 15. aufhört, bekommt für diesen Monat nur das halbe Soll und keine
+   * Warnung „zu wenig geplant". Fehlt = arbeitet weiter (kein Austritt).
+   */
+  endDate?: string;
+  /**
    * Wochentage, an denen diese Person überhaupt eingeplant werden darf.
    * Fehlt/leer = jeder Tag ist möglich (keine Einschränkung).
    */

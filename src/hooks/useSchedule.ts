@@ -25,6 +25,7 @@ import { datesOfMonth } from "../lib/demand";
 import { publicHolidays } from "../lib/holidays";
 import { initialScheduleFor, storeById, withSharedPersonDefaults, type StoreConfig } from "../lib/stores";
 import { applyMigrations } from "../lib/migrations";
+import { isEmployedOn } from "../lib/availability";
 import { contractOpenDays } from "../lib/contract";
 import { weekStartOf } from "../lib/weeks";
 
@@ -183,6 +184,16 @@ export function useSchedule(storeId: string) {
       (d) => !resolveDay(schedule.workHours, d, holidays, overrides).closed,
     );
   }, [schedule.year, schedule.month, schedule.workHours, schedule.dateOverrides]);
+
+  /**
+   * Wer in diesem Monat überhaupt beschäftigt ist (Eintritt/Austritt). Wer erst
+   * später anfängt oder schon gegangen ist, bekommt keine Zeile im Plan und keine
+   * leere Seite im Stundenzettel. Im Tab „Nhân viên" bleiben alle sichtbar.
+   */
+  const activeEmployees = useMemo(
+    () => schedule.employees.filter((employee) => openDates.some((date) => isEmployedOn(employee, date))),
+    [schedule.employees, openDates],
+  );
 
   const openDays = useMemo(() => {
     const byWeek = new Map<string, number>();
@@ -500,6 +511,7 @@ export function useSchedule(storeId: string) {
     schedule,
     originalShifts,
     validation,
+    activeEmployees,
     peakGaps,
     analysis,
     openDays,

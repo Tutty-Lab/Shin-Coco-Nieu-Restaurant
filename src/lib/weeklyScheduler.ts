@@ -1,8 +1,8 @@
 import type { Employee, Shift } from "../types";
 import { DAY_WEIGHTS, datesOfMonth, parseIsoDate, weekdayKeyOf, type WeekdayKey } from "./demand";
-import { weeklyBudgetMinutes, weeklyTargetMinutes } from "./contract";
+import { monthlyTargetMinutesFor, weeklyBudgetMinutes, weeklyTargetMinutes } from "./contract";
 import { calculatePause } from "./time";
-import { mayWorkOn } from "./availability";
+import { isEmployedOn, mayWorkOn } from "./availability";
 import { consecutiveRunLengthWith } from "./consecutive";
 import { effectiveWeekdayKey, resolveDay, type DayBlocks, type DayWindow, type OverrideMap, type WorkHoursConfig } from "./workHours";
 import { publicHolidays } from "./holidays";
@@ -557,11 +557,10 @@ export function generateWeeklySchedule(input: WeeklyInput, existing: Shift[] = [
     if (employee.weeklyHours != null) return [employee.id, weeklyBudgetMinutes(employee, openDates, monthBounds, input.workHours)] as const;
     const empWeekInfo = weekInfo.map((week) => ({
       weekStart: week.weekStart,
-      openDays: (byWeek.get(week.weekStart) ?? []).filter(
-        (date) => employee.startDate == null || date >= employee.startDate,
-      ).length,
+      openDays: (byWeek.get(week.weekStart) ?? []).filter((date) => isEmployedOn(employee, date)).length,
     }));
-    return [employee.id, weeklyTargetMinutes(employee.targetMinutes, empWeekInfo)] as const;
+    // Anteiliges Monats-Soll, wenn Eintritt oder Austritt in den Monat fallen.
+    return [employee.id, weeklyTargetMinutes(monthlyTargetMinutesFor(employee, openDates, input.workHours), empWeekInfo)] as const;
   }));
   // Ein Wochenbudget unter der Mindestschichtlänge (Monatsrand: ein oder zwei
   // offene Tage) ergäbe einen 1–2-Stunden-Dienst. Bei einem MONATSvertrag darf
@@ -641,7 +640,7 @@ export function generateWeeklySchedule(input: WeeklyInput, existing: Shift[] = [
       employee.id,
       employee.weeklyHours != null
         ? [...(budgets.get(employee.id)?.values() ?? [])].reduce((sum, minutes) => sum + minutes, 0)
-        : employee.targetMinutes,
+        : monthlyTargetMinutesFor(employee, openDates, input.workHours),
     ] as const),
   );
   // Ein WOCHENvertrag ist eine harte Grenze je Woche; ein Monatsvertrag nicht.

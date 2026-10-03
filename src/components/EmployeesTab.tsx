@@ -56,6 +56,7 @@ type Draft = {
   holidayDuty: boolean;
   maxDays: string;
   startDate: string; // "yyyy-MM-dd" hoặc "" = từ đầu tháng
+  endDate: string; // "yyyy-MM-dd" hoặc "" = vẫn đang làm
   /** Cùng một người ở quán khác: storeId -> employeeId ("" = không). */
   partners: PartnerChoice;
 };
@@ -79,6 +80,7 @@ function draftFrom(emp?: Employee, partners: PartnerChoice = {}): Draft {
     holidayDuty: emp?.requiredOnHolidays ?? false,
     maxDays: emp?.maxDaysPerWeek ? String(emp.maxDaysPerWeek) : "",
     startDate: emp?.startDate ?? "",
+    endDate: emp?.endDate ?? "",
     partners,
   };
 }
@@ -98,6 +100,10 @@ function advancedSummary(d: Draft, others: readonly OtherStore[] = []): string |
   if (/^\d{4}-\d{2}-\d{2}$/.test(d.startDate)) {
     const [year, month, day] = d.startDate.split("-");
     parts.push(`vào làm ${day}.${month}.${year}`);
+  }
+  if (/^\d{4}-\d{2}-\d{2}$/.test(d.endDate)) {
+    const [year, month, day] = d.endDate.split("-");
+    parts.push(`nghỉ việc ${day}.${month}.${year}`);
   }
   return parts.length > 0 ? parts.join(" · ") : null;
 }
@@ -138,6 +144,8 @@ function draftToEmployee(d: Draft): Omit<Employee, "id"> {
     requiredOnHolidays: d.holidayDuty ? true : undefined,
     // Leeres Feld = von Monatsanfang an dabei (kein Eintrittsdatum).
     startDate: /^\d{4}-\d{2}-\d{2}$/.test(d.startDate) ? d.startDate : undefined,
+    // Leeres Feld = arbeitet weiter (kein Austritt).
+    endDate: /^\d{4}-\d{2}-\d{2}$/.test(d.endDate) ? d.endDate : undefined,
   };
 }
 
@@ -603,6 +611,32 @@ function EmployeeSheet({
               </div>
               <span className="mt-1 block text-xs text-slate-400">
                 Vào giữa tháng thì đặt ngày ở đây — định mức chỉ tính từ ngày này, không báo thiếu giờ. Bỏ trống = làm từ đầu tháng.
+              </span>
+            </label>
+
+            {/* Ngày thôi làm (Austritt) – sau ngày này không xếp ca, định mức tính đến ngày này. */}
+            <label className="mt-3 block">
+              <span className="text-xs text-slate-600">Ngày thôi làm</span>
+              <div className="mt-1 flex items-center gap-2">
+                <input
+                  type="date"
+                  className={`${inputClass}`}
+                  value={d.endDate}
+                  min={d.startDate || undefined}
+                  onChange={(e) => set("endDate", e.target.value)}
+                />
+                {d.endDate && (
+                  <button
+                    type="button"
+                    onClick={() => set("endDate", "")}
+                    className="text-xs text-slate-500 hover:text-slate-700 underline"
+                  >
+                    Xoá
+                  </button>
+                )}
+              </div>
+              <span className="mt-1 block text-xs text-slate-400">
+                Ngày làm cuối cùng — sau ngày này không xếp ca nữa, định mức tháng đó chỉ tính đến ngày này. Bỏ trống = vẫn đang làm.
               </span>
             </label>
           </div>

@@ -29,10 +29,23 @@ export function hasStarted(employee: Employee, isoDate: string): boolean {
 }
 
 /**
+ * Ist die Person an diesem Tag schon weg? Ohne endDate: nie. Der Austritt ist
+ * der LETZTE Arbeitstag, zählt also noch mit.
+ */
+export function hasLeft(employee: Employee, isoDate: string): boolean {
+  return employee.endDate != null && isoDate > employee.endDate;
+}
+
+/** Zählt dieser Tag für den Vertrag dieser Person? (Eintritt … Austritt) */
+export function isEmployedOn(employee: Employee, isoDate: string): boolean {
+  return hasStarted(employee, isoDate) && !hasLeft(employee, isoDate);
+}
+
+/**
  * Die eine Frage, die jeder Planungsschritt stellen muss: darf diese Person an
- * diesem Datum arbeiten? (fester freier Wochentag oder ein Eintritt nach
- * diesem Tag sprechen dagegen)
+ * diesem Datum arbeiten? (fester freier Wochentag, ein Eintritt nach diesem Tag
+ * oder ein Austritt davor sprechen dagegen)
  */
 export function mayWorkOn(employee: Employee, isoDate: string): boolean {
-  return worksOnWeekday(employee, isoDate) && hasStarted(employee, isoDate);
+  return worksOnWeekday(employee, isoDate) && isEmployedOn(employee, isoDate);
 }

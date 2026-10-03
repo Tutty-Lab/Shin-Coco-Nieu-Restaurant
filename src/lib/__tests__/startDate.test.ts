@@ -75,3 +75,44 @@ describe("Eintritt mitten im Monat (startDate)", () => {
     }
   });
 });
+
+describe("Austritt mitten im Monat (endDate)", () => {
+  it("kürzt Wochen- und Monatsvertrag um die Tage nach dem Austritt", () => {
+    const openDates = openDatesOf(2026, 9);
+    const weekly = wk("w", 39);
+    const weeklyOut = wk("w-out", 39, { endDate: "2026-09-15" });
+    expect(monthlyTargetMinutesFor(weeklyOut, openDates)).toBeLessThan(monthlyTargetMinutesFor(weekly, openDates));
+    // Monatsvertrag: anteilig über die offenen Tage bis einschliesslich Austritt.
+    const monthly: Employee = { id: "m", name: "m", employmentType: "VOLLZEIT", targetMinutes: 160 * 60, endDate: "2026-09-15" };
+    const bis = openDates.filter((d) => d <= "2026-09-15").length;
+    const erwartet = Math.round((160 * 60 * bis) / openDates.length / 30) * 30;
+    expect(monthlyTargetMinutesFor(monthly, openDates)).toBe(erwartet);
+  });
+
+  it("verplant nach dem Austritt nichts und meldet keine Fehlstunden-Warnung", () => {
+    const base = initialScheduleFor(storeById("shin"));
+    const ym = `${base.year}-${String(base.month).padStart(2, "0")}`;
+    const employees = base.employees.map((employee: Employee, index: number) =>
+      index === 1 ? { ...employee, endDate: `${ym}-14` } : employee,
+    );
+    const openDates = openDatesOf(base.year, base.month);
+    const shifts = generateSchedule({ year: base.year, month: base.month, workHours: base.workHours, employees });
+    const leaver = employees[1];
+    const late = shifts.filter((s) => s.employeeId === leaver.id && s.date > leaver.endDate!);
+    expect(late, `${leaver.name} darf nach ${leaver.endDate} nicht arbeiten`).toEqual([]);
+    expect(shifts.some((s) => s.employeeId === leaver.id)).toBe(true);
+    const v = validateSchedule(employees, shifts, base.year, openDates);
+    const under = v.errors.filter((e) => e.employeeId === leaver.id && e.message.includes("mới xếp được"));
+    expect(under.map((e) => e.message)).toEqual([]);
+    expect(v.errors.filter((e) => e.employeeId === leaver.id && e.severity !== "warning")).toEqual([]);
+  });
+
+  it("ist nach dem Austrittsmonat nicht mehr eingeplant", () => {
+    const base = initialScheduleFor(storeById("shin"));
+    const employees = base.employees.map((employee: Employee, index: number) =>
+      index === 1 ? { ...employee, endDate: "2026-08-31" } : employee,
+    );
+    const shifts = generateSchedule({ year: 2026, month: 9, workHours: base.workHours, employees });
+    expect(shifts.filter((s) => s.employeeId === employees[1].id)).toEqual([]);
+  });
+});

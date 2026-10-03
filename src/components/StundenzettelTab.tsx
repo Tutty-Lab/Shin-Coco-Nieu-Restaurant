@@ -25,7 +25,17 @@ type ScheduleRange = {
   weekStart?: string;
 };
 
-export function StundenzettelTab({ stores }: { stores: UseScheduleReturn[] }) {
+export function StundenzettelTab({
+  stores,
+  regenerate,
+}: {
+  stores: UseScheduleReturn[];
+  /**
+   * Alle Läden zusammen neu planen (App.generateAll) – sonst würden Leute in
+   * zwei Läden nicht gegen den anderen Laden geprüft.
+   */
+  regenerate?: () => void;
+}) {
   // Alle Filialen laufen im selben Monat (der Kopf steuert alle). Monat und
   // Wochen kommen deshalb aus der ersten Filiale; ausgegeben wird je Quán eine
   // EIGENE Datei – der Betrieb wählt oben den Quán (oder eine Person).
@@ -36,7 +46,8 @@ export function StundenzettelTab({ stores }: { stores: UseScheduleReturn[] }) {
     for (const s of stores) if (s.isLocked) s.unlockMonth();
   };
   const generate = () => {
-    for (const s of stores) s.generate();
+    if (regenerate) regenerate();
+    else for (const s of stores) s.generate();
   };
 
   // Trình duyệt nhúng (Zalo, Messenger, Facebook …) không lưu được file tải thẳng.
@@ -88,8 +99,8 @@ export function StundenzettelTab({ stores }: { stores: UseScheduleReturn[] }) {
   /** Mitarbeiter dieser Filiale, die in den Ausdruck kommen. */
   const chosenFor = (s: UseScheduleReturn): Employee[] => {
     if (s.storeId !== whoStoreId) return [];
-    if (wholeStore) return s.schedule.employees;
-    return s.schedule.employees.filter((e) => e.id === whoEmpId);
+    if (wholeStore) return s.activeEmployees;
+    return s.activeEmployees.filter((e) => e.id === whoEmpId);
   };
   /** employeeIds für den Dienstplan: undefined = ganze Filiale, [] = gar nicht. */
   const employeeIdsFor = (s: UseScheduleReturn): string[] | undefined => {
@@ -102,8 +113,8 @@ export function StundenzettelTab({ stores }: { stores: UseScheduleReturn[] }) {
   // Für die Vorschau und die Dateinamen: eine konkrete Person.
   const previewStore = stores.find((s) => s.storeId === whoStoreId) ?? primary;
   const previewEmployee = wholeStore
-    ? previewStore.schedule.employees[0] ?? null
-    : previewStore.schedule.employees.find((e) => e.id === whoEmpId) ?? null;
+    ? previewStore.activeEmployees[0] ?? null
+    : previewStore.activeEmployees.find((e) => e.id === whoEmpId) ?? null;
   const whoTag = wholeStore ? "ca_quan" : safeFileName(previewEmployee?.name ?? who);
 
   const startPdf = () => {
@@ -320,7 +331,7 @@ export function StundenzettelTab({ stores }: { stores: UseScheduleReturn[] }) {
   // — nội dung bị xoá mất và tờ in ra trắng. Vùng này vốn đã ẩn trên màn hình
   // nên cứ để nguyên; lần in sau sẽ ghi đè bằng danh sách mới.
 
-  if (stores.every((s) => s.schedule.employees.length === 0)) {
+  if (stores.every((s) => s.activeEmployees.length === 0)) {
     return (
       <div className="no-print rounded bg-white border border-slate-200 p-6 text-center text-slate-400">
         Vui lòng thêm nhân viên và tạo lịch làm việc trước.
@@ -366,7 +377,7 @@ export function StundenzettelTab({ stores }: { stores: UseScheduleReturn[] }) {
                   </option>
                 ))}
                 {storeChoices.flatMap((s) =>
-                  s.schedule.employees.map((e) => (
+                  s.activeEmployees.map((e) => (
                     <option key={`${s.storeId}:${e.id}`} value={`${s.storeId}:${e.id}`}>
                       {s.storeConfig.shortName} · {e.name}
                     </option>
@@ -413,7 +424,7 @@ export function StundenzettelTab({ stores }: { stores: UseScheduleReturn[] }) {
               </button>
               <button
                 type="button"
-                disabled={pdfBusy || stores.every((s) => s.schedule.employees.length === 0)}
+                disabled={pdfBusy || stores.every((s) => s.activeEmployees.length === 0)}
                 onClick={() => {
                   if (isLocked) unlockMonth();
                   generate();

@@ -21,6 +21,7 @@
 import type { Employee } from "../types";
 import { DAY_WEIGHTS, parseIsoDate, weekdayKeyOf, type WeekdayKey } from "./demand";
 import { weekStartOf } from "./weeks";
+import { isEmployedOn } from "./availability";
 import { DEFAULT_WORK_HOURS, type WorkHoursConfig } from "./workHours";
 
 /** ISO "yyyy-MM-dd" + n Tage (UTC, ohne Zeitzonen-Verschiebung). */
@@ -76,7 +77,7 @@ function weekdayFactor(weekday: WeekdayKey, workHours: WorkHoursConfig): number 
  *
  * Normale Woche = Wochentage, die in mindestens zwei Wochen des Monats offen
  * sind (ein einmalig geöffneter Montag zählt nicht). Tage vor dem Eintritt
- * (startDate) fallen weg.
+ * (startDate) und nach dem Austritt (endDate) fallen weg.
  */
 export function weekSharesFor(
   emp: Employee,
@@ -96,7 +97,7 @@ export function weekSharesFor(
 
   const byWeek = new Map<string, { factor: number; days: number }>();
   for (const date of openDates) {
-    if (emp.startDate != null && date < emp.startDate) continue;
+    if (!isEmployedOn(emp, date)) continue;
     const week = weekStartOf(date);
     const entry = byWeek.get(week) ?? { factor: 0, days: 0 };
     entry.factor += weekdayFactor(weekdayKeyOf(parseIsoDate(date)), workHours);
@@ -125,12 +126,27 @@ function weekPartMinutes(weeklyMinutes: number, week: WeekShare): number {
  * eingetragenen targetMinutes. workHours = Wochenplan des Ladens (Standard:
  * Vorgabe), damit Anzeige, Prüfung und Scheduler dieselbe Zahl rechnen.
  */
+/**
+ * MONATSvertrag anteilig, wenn jemand mitten im Monat kommt oder geht: wer am
+ * 15. anfängt oder aufhört, schuldet in diesem Monat nur den Anteil der offenen
+ * Tage, an denen er beschäftigt ist. Auf die halbe Stunde gerundet, damit der
+ * Planer die Zahl exakt treffen kann.
+ */
+function proratedMonthly(emp: Employee, openDates: readonly string[]): number {
+  if (emp.startDate == null && emp.endDate == null) return emp.targetMinutes;
+  if (openDates.length === 0) return emp.targetMinutes;
+  const beschaeftigt = openDates.filter((date) => isEmployedOn(emp, date)).length;
+  if (beschaeftigt >= openDates.length) return emp.targetMinutes;
+  const anteil = (emp.targetMinutes * beschaeftigt) / openDates.length;
+  return Math.max(0, Math.round(anteil / SCHEDULE_SLOT_MINUTES) * SCHEDULE_SLOT_MINUTES);
+}
+
 export function monthlyTargetMinutesFor(
   emp: Employee,
   openDates: readonly string[],
   workHours: WorkHoursConfig = DEFAULT_WORK_HOURS,
 ): number {
-  if (emp.weeklyHours == null) return emp.targetMinutes;
+  if (emp.weeklyHours == null) return proratedMonthly(emp, openDates);
   const weekly = emp.weeklyHours * 60;
   return Math.max(0, Math.round(weekSharesFor(emp, openDates, workHours).reduce((sum, week) => sum + weekPartMinutes(weekly, week), 0)));
 }
