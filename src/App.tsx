@@ -1,5 +1,5 @@
-import { useEffect, useState, type ReactNode } from "react";
-import { useSchedule, type UseScheduleReturn } from "./hooks/useSchedule";
+import { useEffect, useState } from "react";
+import { useSchedule } from "./hooks/useSchedule";
 import { GenerateScheduleDialog } from "./components/GenerateScheduleDialog";
 import { SettingsTab } from "./components/SettingsTab";
 import { EmployeesTab } from "./components/EmployeesTab";
@@ -13,6 +13,9 @@ import { monthLabel } from "./lib/shiftOps";
 import { MONTH_NAMES_VI } from "./lib/dateFormat";
 import { isScheduleYearAllowed, SCHEDULE_YEARS } from "./lib/years";
 import { STORES } from "./lib/stores";
+
+/** Zuletzt angezeigter Laden (nur Ansicht, je Gerät). */
+const VIEW_KEY = "stundenzettel-app:view-store";
 
 type TabId = "einstellungen" | "mitarbeiter" | "dienstplan" | "stundenzettel";
 
@@ -32,13 +35,33 @@ export default function App() {
 }
 
 function MainApp({ onLogout }: { onLogout: () => void }) {
-  // Beide Filialen laufen gleichzeitig – jede mit eigenem State, eigener
-  // Persistenz und eigener Sync. Angezeigt werden sie untereinander; es gibt
-  // bewusst KEIN Umschalten, der Betreiber sieht immer alle Läden.
+  // Alle Filialen laufen gleichzeitig – jede mit eigenem State, eigener
+  // Persistenz und eigener Sync. ANGEZEIGT wird nur der Laden, der oben neben
+  // dem Monat gewählt ist (drei Läden untereinander waren zu lang). Erzeugt
+  // wird weiterhin für alle zusammen, wegen der Leute in zwei Läden.
   const shin = useSchedule(STORES[0].id);
   const coco = useSchedule(STORES[1].id);
   const nieu = useSchedule(STORES[2].id);
   const stores = [shin, coco, nieu];
+  const [viewId, setViewId] = useState<string>(() => {
+    try {
+      const saved = localStorage.getItem(VIEW_KEY);
+      if (saved && STORES.some((s) => s.id === saved)) return saved;
+    } catch {
+      // Speicher gesperrt – dann der erste Laden.
+    }
+    return STORES[0].id;
+  });
+  const chooseStore = (id: string) => {
+    setViewId(id);
+    try {
+      localStorage.setItem(VIEW_KEY, id);
+    } catch {
+      // egal – nur eine Bequemlichkeit
+    }
+  };
+  /** Der angezeigte Laden. */
+  const view = stores.find((s) => s.storeId === viewId) ?? shin;
   // Monat/Jahr sind für alle gleich (der Ausdruck muss zusammenpassen). Der
   // Kopf steuert alle; angezeigt wird der Stand der ersten Filiale.
   const primary = shin;
@@ -87,7 +110,7 @@ function MainApp({ onLogout }: { onLogout: () => void }) {
   // erfolgreichen Lauf; der Effekt liest DANACH die (frische) Prüfung beider
   // Filialen aus.
   const [toast, setToast] = useState<string | null>(null);
-  const genStampSum = shin.genStamp + coco.genStamp;
+  const genStampSum = stores.reduce((sum, s) => sum + s.genStamp, 0);
   useEffect(() => {
     if (genStampSum === 0) return;
     const allErrors = stores.flatMap((s) => s.validation.errors);
@@ -114,7 +137,7 @@ function MainApp({ onLogout }: { onLogout: () => void }) {
               <span className="ml-2 align-middle text-[10px] font-normal text-slate-400">bản {__BUILD__}</span>
             </h1>
             <p className="text-xs text-slate-300">
-              {STORES.map((s) => s.shortName).join(" · ")} ·{" "}
+              {view.storeConfig.name} ·{" "}
               {monthLabel(primary.schedule.year, primary.schedule.month)}
               {(() => {
                 const anyOn = stores.some((s) => s.remoteStatus !== "off");
@@ -135,8 +158,20 @@ function MainApp({ onLogout }: { onLogout: () => void }) {
             </p>
           </div>
           <div className="flex flex-wrap items-center gap-2">
-            {/* Tháng/năm dùng chung cho mọi quán – bản in phải cùng kỳ. */}
-            <div className="inline-flex items-center gap-1.5" aria-label="Chọn kỳ">
+            {/* Quán đang xem + tháng/năm (tháng dùng chung cho mọi quán – bản in phải cùng kỳ). */}
+            <div className="inline-flex items-center gap-1.5" aria-label="Chọn quán và kỳ">
+              <select
+                aria-label="Quán"
+                value={view.storeId}
+                onChange={(e) => chooseStore(e.target.value)}
+                className="rounded-md border border-slate-600 bg-white px-2 py-1.5 text-sm font-semibold text-slate-900"
+              >
+                {stores.map((s) => (
+                  <option key={s.storeId} value={s.storeId} className="bg-white text-slate-900">
+                    {s.storeConfig.shortName}
+                  </option>
+                ))}
+              </select>
               <select
                 aria-label="Tháng"
                 value={primary.schedule.month}
@@ -197,11 +232,7 @@ function MainApp({ onLogout }: { onLogout: () => void }) {
       </header>
 
       <div className="no-print mx-auto max-w-[1500px] px-3 sm:px-4 pt-4 space-y-4">
-        {stores.map((s) => (
-          <StoreSection key={s.storeId} store={s}>
-            <Dashboard store={s} />
-          </StoreSection>
-        ))}
+        <Dashboard store={view} />
       </div>
 
       <nav className="no-print mx-auto max-w-[1500px] px-3 sm:px-4 mt-4">
@@ -302,33 +333,20 @@ function MainApp({ onLogout }: { onLogout: () => void }) {
         ) : (
           <>
             <div className="no-print space-y-6">
-              {tab === "einstellungen" &&
-                stores.map((s) => (
-                  <StoreSection key={s.storeId} store={s}>
-                    <SettingsTab store={s} />
-                  </StoreSection>
-                ))}
-              {tab === "mitarbeiter" &&
-                stores.map((s) => (
-                  <StoreSection key={s.storeId} store={s}>
-                    <EmployeesTab store={s} allStores={stores} />
-                  </StoreSection>
-                ))}
+              {tab === "einstellungen" && <SettingsTab key={view.storeId} store={view} />}
+              {tab === "mitarbeiter" && <EmployeesTab key={view.storeId} store={view} allStores={stores} />}
             </div>
             {/*
               „Bảng chấm công" chứa vùng in và không nằm trong khối no-print.
               „Lịch làm việc" cũng nằm ngoài vì tự mang no-print riêng.
             */}
-            {tab === "dienstplan" && (
-              <div className="space-y-6">
-                {stores.map((s) => (
-                  <StoreSection key={s.storeId} store={s}>
-                    <ScheduleTab store={s} />
-                  </StoreSection>
-                ))}
-              </div>
-            )}
-            {tab === "stundenzettel" && <StundenzettelTab stores={stores} />}
+            {tab === "dienstplan" && <ScheduleTab key={view.storeId} store={view} />}
+            {/* Nur der gewählte Laden – die PDF ist damit eine Datei je Laden. */}
+            {tab === "stundenzettel" && <StundenzettelTab
+                key={view.storeId}
+                stores={[view]}
+                regenerate={() => generateAll({ year: primary.schedule.year, month: primary.schedule.month })}
+              />}
           </>
         )}
       </main>
@@ -336,17 +354,3 @@ function MainApp({ onLogout }: { onLogout: () => void }) {
   );
 }
 
-/** Ein Filial-Abschnitt mit Kopfzeile (Filialname). Kopf ist nie im Druck. */
-function StoreSection({ store, children }: { store: UseScheduleReturn; children: ReactNode }) {
-  return (
-    <section>
-      <div className="no-print mb-2 flex items-center gap-2">
-        <span className="rounded-md bg-slate-900 px-2.5 py-1 text-sm font-semibold text-white">
-          {store.storeConfig.shortName}
-        </span>
-        <span className="text-sm text-slate-500">{store.storeConfig.name}</span>
-      </div>
-      {children}
-    </section>
-  );
-}
