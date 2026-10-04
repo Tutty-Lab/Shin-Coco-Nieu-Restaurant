@@ -75,6 +75,7 @@ function normalizeSchedule(raw: Schedule | undefined, store: StoreConfig): Sched
     employees: withSharedPersonDefaults(raw.employees ?? [], store),
     shifts: raw.shifts ?? [],
     lockedAt: raw.lockedAt,
+    underQuotaAccepted: raw.underQuotaAccepted === true ? true : undefined,
     printedWeeks: Array.isArray(raw.printedWeeks) ? raw.printedWeeks : [],
     migrations: Array.isArray(raw.migrations) ? raw.migrations : [],
   });
@@ -250,7 +251,7 @@ export function useSchedule(storeId: string) {
         (patch.year !== undefined && patch.year !== s.year) ||
         (patch.month !== undefined && patch.month !== s.month);
       if (monthChanged) {
-        return { ...s, ...patch, lockedAt: undefined, printedWeeks: [] };
+        return { ...s, ...patch, lockedAt: undefined, printedWeeks: [], underQuotaAccepted: undefined };
       }
       return { ...s, ...patch };
     });
@@ -382,7 +383,8 @@ export function useSchedule(storeId: string) {
         storeTag: storeConfig.id,
         seed: `${year}-${month}-${Date.now()}-${genNonce.current++}`,
       });
-      setSchedule((s) => ({ ...s, year, month, shifts, lockedAt: undefined, printedWeeks: [] }));
+      // Neuer Plan: ein früheres „Bỏ qua cảnh báo" gilt nicht mehr.
+      setSchedule((s) => ({ ...s, year, month, shifts, lockedAt: undefined, printedWeeks: [], underQuotaAccepted: undefined }));
       setOriginalShifts(shifts.map((sh) => ({ ...sh })));
       setGenStamp((n) => n + 1);
       return shifts;

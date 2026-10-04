@@ -110,6 +110,12 @@ function MainApp({ onLogout }: { onLogout: () => void }) {
   // erfolgreichen Lauf; der Effekt liest DANACH die (frische) Prüfung beider
   // Filialen aus.
   const [toast, setToast] = useState<string | null>(null);
+  /**
+   * Popup nach „Tạo lịch", wenn jemand sein Soll nicht erreicht: der Chủ quán
+   * sieht wer und wie viel, und entscheidet selbst – „Bỏ qua cảnh báo" nimmt es
+   * für diesen Plan hin (Dashboard wird grün), „Để sau" lässt die Warnung stehen.
+   */
+  const [quotaPopup, setQuotaPopup] = useState<{ storeId: string; name: string; messages: string[] }[] | null>(null);
   const genStampSum = stores.reduce((sum, s) => sum + s.genStamp, 0);
   useEffect(() => {
     if (genStampSum === 0) return;
@@ -123,6 +129,14 @@ function MainApp({ onLogout }: { onLogout: () => void }) {
           ? `✓ Đã tạo lịch ${stores.length} quán (còn ${warn} cảnh báo thiếu giờ — bấm (i) để xem).`
           : `✓ Đã tạo lịch mới cho cả ${stores.length} quán — hợp lệ, đúng giờ hợp đồng.`,
     );
+    const offen = stores
+      .map((s) => ({
+        storeId: s.storeId,
+        name: s.storeConfig.shortName,
+        messages: s.validation.errors.filter((e) => e.severity === "warning").map((e) => e.message),
+      }))
+      .filter((x) => x.messages.length > 0);
+    setQuotaPopup(offen.length > 0 ? offen : null);
     const t = window.setTimeout(() => setToast(null), 5000);
     return () => window.clearTimeout(t);
   }, [genStampSum]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -284,6 +298,50 @@ function MainApp({ onLogout }: { onLogout: () => void }) {
             openTab("dienstplan");
           }}
         />
+      )}
+
+      {quotaPopup && (
+        <div className="no-print fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" role="dialog" aria-modal="true">
+          <div className="w-full max-w-lg rounded-lg bg-white shadow-xl">
+            <div className="border-b border-slate-100 px-5 py-4">
+              <h2 className="text-base font-semibold text-slate-900">Có người chưa đủ giờ định mức</h2>
+              <p className="mt-1 text-sm text-slate-600">
+                Lịch vẫn dùng được. Tháng này không đủ ngày trống để xếp đủ giờ cho những người dưới đây.
+              </p>
+            </div>
+            <div className="max-h-[50vh] space-y-3 overflow-y-auto px-5 py-4 text-sm">
+              {quotaPopup.map((x) => (
+                <div key={x.storeId}>
+                  <div className="mb-1 font-semibold text-slate-800">{x.name}</div>
+                  <ul className="list-disc space-y-0.5 pl-5 text-slate-700">
+                    {x.messages.map((m, i) => (
+                      <li key={i}>{m}</li>
+                    ))}
+                  </ul>
+                </div>
+              ))}
+            </div>
+            <div className="flex flex-wrap justify-end gap-2 border-t border-slate-100 px-5 py-3">
+              <button
+                type="button"
+                onClick={() => setQuotaPopup(null)}
+                className="rounded border border-slate-300 bg-white px-4 py-2 text-sm text-slate-700 hover:bg-slate-50"
+              >
+                Để sau
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  for (const x of quotaPopup) stores.find((s) => s.storeId === x.storeId)?.updateMeta({ underQuotaAccepted: true });
+                  setQuotaPopup(null);
+                }}
+                className="rounded bg-slate-900 px-4 py-2 text-sm font-medium text-white hover:bg-slate-700"
+              >
+                Bỏ qua cảnh báo
+              </button>
+            </div>
+          </div>
+        </div>
       )}
 
       {(stores.some((s) => s.genError) || toast) && (

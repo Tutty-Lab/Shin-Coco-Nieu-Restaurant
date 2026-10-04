@@ -104,7 +104,10 @@ export function Dashboard({ store }: { store: UseScheduleReturn }) {
 
   // Warnungen und Fehler getrennt: ein zu hohes Monats-Soll macht den Plan nicht
   // unbrauchbar, es fehlen nur Stunden, die der Monat nicht hergibt.
-  const warnungen = validation.errors.filter((e) => e.severity === "warning");
+  const alleWarnungen = validation.errors.filter((e) => e.severity === "warning");
+  // Vom Chủ quán im Popup nach „Tạo lịch" bewusst übergangen -> nicht mehr anzeigen.
+  const accepted = schedule.underQuotaAccepted === true;
+  const warnungen = accepted ? [] : alleWarnungen;
   const fehler = validation.errors.filter((e) => e.severity !== "warning");
 
   const statusValue = notGenerated
@@ -150,6 +153,19 @@ export function Dashboard({ store }: { store: UseScheduleReturn }) {
             ))}
           </ul>
         </InfoNote>
+      )}
+
+      {accepted && alleWarnungen.length > 0 && schedule.shifts.length > 0 && (
+        <div className="mt-2 flex flex-wrap items-center gap-2 text-xs text-slate-500">
+          <span>Đã bỏ qua {alleWarnungen.length} cảnh báo thiếu giờ định mức.</span>
+          <button
+            type="button"
+            onClick={() => store.updateMeta({ underQuotaAccepted: undefined })}
+            className="underline hover:text-slate-700"
+          >
+            Hiện lại
+          </button>
+        </div>
       )}
 
       {/* Cảnh báo thiếu giờ: một dòng + (i) mở chi tiết vì sao từng người. */}

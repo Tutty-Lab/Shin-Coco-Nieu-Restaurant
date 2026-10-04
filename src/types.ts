@@ -126,4 +126,9 @@ export type Schedule = {
   printedWeeks?: string[];
   /** Bereits angewandte einmalige Datenänderungen (siehe lib/migrations.ts). */
   migrations?: string[];
+  /**
+   * Der Betrieb hat die Warnungen „chưa đủ giờ định mức" für DIESEN Plan
+   * bewusst hingenommen (Popup nach „Tạo lịch"). Ein neuer Plan setzt es zurück.
+   */
+  underQuotaAccepted?: boolean;
 };
