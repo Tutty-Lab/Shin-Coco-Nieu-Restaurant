@@ -458,33 +458,28 @@ function EmployeeSheet({
             </summary>
             <div className="space-y-4 border-t border-slate-100 px-3 pb-3 pt-3">
           <div>
-            <label className="flex items-start gap-2 text-sm text-slate-700 cursor-pointer select-none">
-              <input
-                type="checkbox"
-                className="mt-0.5"
-                checked={d.holidayDuty}
-                onChange={(e) => set("holidayDuty", e.target.checked)}
-              />
-              <span>
+            {/* Trực ngày lễ + ca cố định chung một hàng, không ghi chú cho gọn. */}
+            <div className="flex flex-wrap items-center gap-x-6 gap-y-2">
+              <label className="flex items-center gap-2 text-sm text-slate-700 cursor-pointer select-none">
+                <input
+                  type="checkbox"
+                  checked={d.holidayDuty}
+                  onChange={(e) => set("holidayDuty", e.target.checked)}
+                />
                 Trực ngày lễ
-                <span className="block text-xs text-slate-500">
-                  Ngày lễ nào quán mở thì người này luôn có ca.
-                </span>
-              </span>
-            </label>
-
-            <label className="mt-3 flex items-start gap-2 text-sm text-slate-700 cursor-pointer select-none">
-              <input
-                type="checkbox"
-                className="mt-0.5"
-                checked={d.fixed}
-                onChange={(e) => set("fixed", e.target.checked)}
-              />
-              <span>Ca cố định</span>
-            </label>
+              </label>
+              <label className="flex items-center gap-2 text-sm text-slate-700 cursor-pointer select-none">
+                <input
+                  type="checkbox"
+                  checked={d.fixed}
+                  onChange={(e) => set("fixed", e.target.checked)}
+                />
+                Ca cố định
+              </label>
+            </div>
 
             {d.fixed && (
-              <div className="mt-2 ml-6 flex flex-wrap items-center gap-2 text-sm text-slate-700">
+              <div className="mt-2 flex flex-wrap items-center gap-2 text-sm text-slate-700">
                 <span className="text-xs text-slate-500">Khung giờ</span>
                 <input
                   type="time"
@@ -560,10 +555,6 @@ function EmployeeSheet({
           {others.length > 0 && (
             <div className="border-t border-slate-100 pt-3">
               <div className="text-xs text-slate-600">Cũng làm ở quán khác</div>
-              <p className="mt-0.5 text-xs text-slate-400">
-                Chọn đúng người này trong danh sách quán kia. Khi tạo lịch, người này không bị xếp hai quán
-                trong cùng một ngày. Nên đặt „Số ngày làm mỗi tuần" ở quán chính để quán kia còn ngày trống.
-              </p>
               <div className="mt-2 space-y-2">
                 {others.map((o) => (
                   <label key={o.storeId} className="flex items-center gap-2 text-sm text-slate-700">
@@ -588,57 +579,37 @@ function EmployeeSheet({
             </div>
           )}
 
-          {/* Ngày vào làm (Eintritt) – vào giữa tháng thì không bị báo thiếu giờ. */}
-          <div className="border-t border-slate-100 pt-3">
-            <label className="block">
-              <span className="text-xs text-slate-600">Ngày vào làm</span>
-              <div className="mt-1 flex items-center gap-2">
-                <input
-                  type="date"
-                  className={`${inputClass}`}
-                  value={d.startDate}
-                  onChange={(e) => set("startDate", e.target.value)}
-                />
-                {d.startDate && (
-                  <button
-                    type="button"
-                    onClick={() => set("startDate", "")}
-                    className="text-xs text-slate-500 hover:text-slate-700 underline"
-                  >
-                    Xoá
-                  </button>
-                )}
-              </div>
-              <span className="mt-1 block text-xs text-slate-400">
-                Vào giữa tháng thì đặt ngày ở đây — định mức chỉ tính từ ngày này, không báo thiếu giờ. Bỏ trống = làm từ đầu tháng.
-              </span>
-            </label>
-
-            {/* Ngày thôi làm (Austritt) – sau ngày này không xếp ca, định mức tính đến ngày này. */}
-            <label className="mt-3 block">
-              <span className="text-xs text-slate-600">Ngày thôi làm</span>
-              <div className="mt-1 flex items-center gap-2">
-                <input
-                  type="date"
-                  className={`${inputClass}`}
-                  value={d.endDate}
-                  min={d.startDate || undefined}
-                  onChange={(e) => set("endDate", e.target.value)}
-                />
-                {d.endDate && (
-                  <button
-                    type="button"
-                    onClick={() => set("endDate", "")}
-                    className="text-xs text-slate-500 hover:text-slate-700 underline"
-                  >
-                    Xoá
-                  </button>
-                )}
-              </div>
-              <span className="mt-1 block text-xs text-slate-400">
-                Ngày làm cuối cùng — sau ngày này không xếp ca nữa, định mức tháng đó chỉ tính đến ngày này. Bỏ trống = vẫn đang làm.
-              </span>
-            </label>
+          {/* Ngày vào làm / thôi làm chung một hàng. Bỏ trống = từ đầu tháng / vẫn đang làm. */}
+          <div className="grid grid-cols-2 gap-3 border-t border-slate-100 pt-3">
+            {(
+              [
+                ["startDate", "Ngày vào làm", undefined],
+                ["endDate", "Ngày thôi làm", d.startDate || undefined],
+              ] as const
+            ).map(([key, label, min]) => (
+              <label key={key} className="block min-w-0">
+                <span className="text-xs text-slate-600">{label}</span>
+                <div className="mt-1 flex items-center gap-1">
+                  <input
+                    type="date"
+                    className={`${inputClass} w-full min-w-0`}
+                    value={d[key]}
+                    min={min}
+                    onChange={(e) => set(key, e.target.value)}
+                  />
+                  {d[key] && (
+                    <button
+                      type="button"
+                      onClick={() => set(key, "")}
+                      aria-label={`Xoá ${label.toLowerCase()}`}
+                      className="shrink-0 px-1 text-slate-400 hover:text-slate-700"
+                    >
+                      ✕
+                    </button>
+                  )}
+                </div>
+              </label>
+            ))}
           </div>
             </div>
           </details>

@@ -335,8 +335,16 @@ export function SettingsTab({ store }: { store: UseScheduleReturn }) {
         </div>
       </details>
 
-      <section className="rounded-lg bg-white border border-slate-200 p-4 sm:p-5 shadow-sm">
-        <h2 className="text-base font-semibold text-slate-900 mb-1">Ngày đặc biệt</h2>
+      {/* Ngày đặc biệt: thu gọn như Nâng cao; số ngày đã đặt hiện ngay trên tiêu đề. */}
+      <details className="group rounded-lg bg-white border border-slate-200 shadow-sm">
+        <summary className="flex cursor-pointer list-none items-center justify-between gap-3 rounded-lg p-4 sm:p-5 hover:bg-slate-50 [&::-webkit-details-marker]:hidden">
+          <h2 className="text-base font-semibold text-slate-900">Ngày đặc biệt
+            {schedule.dateOverrides.length > 0 && (
+              <span className="ml-2 text-sm font-normal text-slate-500">({schedule.dateOverrides.length} ngày)</span>
+            )}</h2>
+          <span className="text-lg text-slate-400 transition-transform group-open:rotate-90" aria-hidden="true">›</span>
+        </summary>
+        <div className="border-t border-slate-100 p-4 sm:p-5">
         <p className="text-xs text-slate-500 mb-3">
           Cài đặt riêng cho một ngày cụ thể: <span className="font-medium">đóng cửa cả ngày</span> hoặc
           <span className="font-medium"> giờ làm riêng</span> (VD nghỉ nửa ngày). Sẽ ghi đè giờ theo thứ
@@ -447,7 +455,8 @@ export function SettingsTab({ store }: { store: UseScheduleReturn }) {
         ) : (
           <p className="mt-3 text-xs text-slate-400">Chưa có ngày đặc biệt nào.</p>
         )}
-      </section>
+        </div>
+      </details>
 
       <PasswordSection onChange={changePassword} />
     </div>
@@ -495,8 +504,12 @@ function PasswordSection({
   }
 
   return (
-    <section className="rounded-lg bg-white border border-slate-200 p-4 sm:p-5 shadow-sm">
-      <h2 className="text-base font-semibold text-slate-900">Mật khẩu vào ứng dụng</h2>
+    <details className="group rounded-lg bg-white border border-slate-200 shadow-sm">
+      <summary className="flex cursor-pointer list-none items-center justify-between gap-3 rounded-lg p-4 sm:p-5 hover:bg-slate-50 [&::-webkit-details-marker]:hidden">
+        <h2 className="text-base font-semibold text-slate-900">Mật khẩu vào ứng dụng</h2>
+        <span className="text-lg text-slate-400 transition-transform group-open:rotate-90" aria-hidden="true">›</span>
+      </summary>
+      <div className="border-t border-slate-100 p-4 sm:p-5">
 
       <form onSubmit={absenden} className="mt-3 flex flex-col gap-3 sm:flex-row sm:items-end">
         <label className="flex flex-col sm:w-44">
@@ -540,6 +553,7 @@ function PasswordSection({
 
       {fehler && <p className="mt-2 text-sm text-rose-600">{fehler}</p>}
       {fertig && <p className="mt-2 text-sm text-emerald-700">Đã đổi mật khẩu.</p>}
-    </section>
+      </div>
+    </details>
   );
 }

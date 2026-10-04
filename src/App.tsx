@@ -196,6 +196,20 @@ function MainApp({ onLogout }: { onLogout: () => void }) {
                 )}
               </select>
             </div>
+            {/* Aus dem Menü geöffnete Seite: steht direkt neben dem Menü, mit ✕ zurück. */}
+            {(docsOpen || !MAIN_TABS.includes(tab)) && (
+              <span className="inline-flex items-center gap-1 rounded-md bg-white py-1.5 pl-3 pr-1 text-sm font-medium text-slate-900">
+                {docsOpen ? "Tài liệu" : TABS.find((t) => t.id === tab)?.label}
+                <button
+                  type="button"
+                  onClick={() => openTab("dienstplan")}
+                  aria-label="Đóng"
+                  className="rounded px-1.5 text-slate-400 hover:text-slate-900"
+                >
+                  ✕
+                </button>
+              </span>
+            )}
             {/* Menu: alles, was nicht täglich gebraucht wird. */}
             <div className="relative">
               <button
@@ -292,25 +306,11 @@ function MainApp({ onLogout }: { onLogout: () => void }) {
               </button>
             );
           })}
-          {/* Aus dem Menü geöffnet (Nhân viên / Cài đặt): zeigen, wo man ist, und zurück. */}
-          {!docsOpen && !MAIN_TABS.includes(tab) && (
-            <span className="inline-flex items-center gap-1 rounded-full border border-slate-900 bg-slate-900 py-2 pl-3.5 pr-2 text-sm font-medium text-white">
-              {TABS.find((t) => t.id === tab)?.label}
-              <button
-                type="button"
-                onClick={() => openTab("dienstplan")}
-                aria-label="Đóng"
-                className="rounded-full px-1.5 text-slate-300 hover:text-white"
-              >
-                ✕
-              </button>
-            </span>
-          )}
           <button
             type="button"
             onClick={() => setGenDialogOpen(true)}
             disabled={stores.every((s) => s.schedule.employees.length === 0)}
-            className="ml-auto rounded-lg bg-slate-900 px-4 py-2 text-sm font-medium text-white hover:bg-slate-700 active:bg-slate-800 disabled:opacity-40"
+            className="ml-auto rounded-lg border border-emerald-700 bg-emerald-600 px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-emerald-700 active:bg-emerald-800 disabled:opacity-40"
           >
             Tạo lịch
           </button>

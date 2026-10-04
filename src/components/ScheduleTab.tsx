@@ -18,7 +18,6 @@ import { employmentShortVi } from "../lib/employment";
 import { monthlyTargetMinutesFor, SCHEDULE_SLOT_MINUTES } from "../lib/contract";
 import { StaffingReport } from "./StaffingReport";
 import { PauseLabel } from "./PauseLabel";
-import { CoverageChart } from "./CoverageChart";
 
 function isWeekendKey(iso: string): boolean {
   const k = weekdayKeyOf(parseIsoDate(iso));
@@ -37,10 +36,8 @@ export function ScheduleTab({ store }: { store: UseScheduleReturn }) {
   // Nút „Tạo lịch làm việc" và popup nằm trên thanh tab (App.tsx).
   const { schedule, validation, isLocked, openDates } = store;
   const [selected, setSelected] = useState<{ employeeId: string; date: string } | null>(null);
-  // Mặc định: điện thoại -> xem theo ngày, màn lớn -> bảng tháng.
-  const [view, setView] = useState<"grid" | "day" | "week" | "coverage">(() =>
-    typeof window !== "undefined" && window.matchMedia("(max-width: 640px)").matches ? "day" : "grid",
-  );
+  // Mặc định luôn là cả tháng (theo yêu cầu của quán).
+  const [view, setView] = useState<"grid" | "day" | "week">("grid");
   const [weekIndex, setWeekIndex] = useState(0);
 
   const dates = useMemo(
@@ -141,70 +138,61 @@ export function ScheduleTab({ store }: { store: UseScheduleReturn }) {
         </div>
       )}
 
-      {/* Chuyển chế độ xem */}
+      {/* Chuyển chế độ xem: Tháng (mặc định) · Tuần · Ngày. Tuần chọn bằng một ô gọn. */}
       {hasEmployees && (
-        <div className="inline-flex rounded-lg border border-slate-200 bg-white p-0.5 mb-3">
-          <button
-            onClick={() => setView("day")}
-            aria-pressed={view === "day"}
-            className={`px-3 py-1.5 text-sm rounded-md ${
-              view === "day" ? "bg-slate-900 text-white" : "text-slate-600"
-            }`}
-          >
-            Theo ngày
-          </button>
-          <button
-            onClick={() => setView("week")}
-            aria-pressed={view === "week"}
-            className={`px-3 py-1.5 text-sm rounded-md ${
-              view === "week" ? "bg-slate-900 text-white" : "text-slate-600"
-            }`}
-          >
-            Theo tuần
-          </button>
-          <button
-            onClick={() => setView("grid")}
-            aria-pressed={view === "grid"}
-            className={`px-3 py-1.5 text-sm rounded-md ${
-              view === "grid" ? "bg-slate-900 text-white" : "text-slate-600"
-            }`}
-          >
-            Bảng tháng
-          </button>
-          <button
-            onClick={() => setView("coverage")}
-            aria-pressed={view === "coverage"}
-            className={`px-3 py-1.5 text-sm rounded-md ${
-              view === "coverage" ? "bg-slate-900 text-white" : "text-slate-600"
-            }`}
-          >
-            Độ phủ
-          </button>
-        </div>
-      )}
-
-      {/* Wochenwahl für Dienstplan und Besetzungsdiagramm. */}
-      {hasEmployees && (view === "week" || view === "coverage") && (
-        <div className="flex flex-wrap items-center gap-2 mb-3">
-          {weeks.map((w, idx) => {
-            const printed = (schedule.printedWeeks ?? []).includes(w.weekStart);
-            return (
+        <div className="mb-3 flex flex-wrap items-center gap-2">
+          <div className="inline-flex rounded-lg border border-slate-200 bg-white p-0.5">
+            {(
+              [
+                ["grid", "Tháng"],
+                ["week", "Tuần"],
+                ["day", "Ngày"],
+              ] as const
+            ).map(([id, label]) => (
               <button
-                key={w.weekStart}
-                onClick={() => setWeekIndex(idx)}
-                aria-pressed={idx === weekIndex}
-                className={`rounded border px-3 py-1.5 text-sm ${
-                  idx === weekIndex
-                    ? "border-slate-900 bg-slate-900 text-white"
-                    : "border-slate-300 bg-white text-slate-600 hover:bg-slate-50"
-                }`}
-                title={printed ? "Tuần này đã in" : undefined}
+                key={id}
+                onClick={() => setView(id)}
+                aria-pressed={view === id}
+                className={`px-3 py-1.5 text-sm rounded-md ${view === id ? "bg-slate-900 text-white" : "text-slate-600"}`}
               >
-                {w.label}
-                {printed && " ✓"}
+                {label}
               </button>
-            );
-          })}
+            ))}
+          </div>
+          {view === "week" && weeks.length > 0 && (
+            <div className="inline-flex items-center rounded-lg border border-slate-200 bg-white">
+              <button
+                type="button"
+                onClick={() => setWeekIndex((i) => Math.max(0, i - 1))}
+                disabled={weekIndex === 0}
+                aria-label="Tuần trước"
+                className="px-2.5 py-1.5 text-slate-600 disabled:opacity-30"
+              >
+                ‹
+              </button>
+              <select
+                aria-label="Tuần"
+                value={Math.min(weekIndex, weeks.length - 1)}
+                onChange={(e) => setWeekIndex(Number(e.target.value))}
+                className="border-x border-slate-200 bg-white px-2 py-1.5 text-sm text-slate-800"
+              >
+                {weeks.map((w, idx) => (
+                  <option key={w.weekStart} value={idx}>
+                    {w.label}
+                  </option>
+                ))}
+              </select>
+              <button
+                type="button"
+                onClick={() => setWeekIndex((i) => Math.min(weeks.length - 1, i + 1))}
+                disabled={weekIndex >= weeks.length - 1}
+                aria-label="Tuần sau"
+                className="px-2.5 py-1.5 text-slate-600 disabled:opacity-30"
+              >
+                ›
+              </button>
+            </div>
+          )}
         </div>
       )}
 
@@ -246,12 +234,6 @@ export function ScheduleTab({ store }: { store: UseScheduleReturn }) {
         </div>
       ) : view === "day" ? (
         <ScheduleDayView store={store} onEdit={(employeeId, date) => setSelected({ employeeId, date })} />
-      ) : view === "coverage" ? (
-        <CoverageChart
-          schedule={schedule}
-          rules={store.storeConfig.staffingRules}
-          dates={weeks[Math.min(weekIndex, weeks.length - 1)]?.dates ?? dates}
-        />
       ) : (
         <div className="overflow-x-auto rounded-lg border border-slate-200 bg-white -mx-3 sm:mx-0">
           <table className="border-collapse text-xs">
