@@ -2,6 +2,7 @@ import { useMemo, useState } from "react";
 import type { UseScheduleReturn } from "../hooks/useSchedule";
 import type { Employee } from "../types";
 import { StundenzettelPage } from "./StundenzettelPage";
+import { FitToWidth } from "./FitToWidth";
 import type { SchedulePrintLayout } from "./SchedulePrintPage";
 import {
   buildDienstplanPdfFor,
@@ -394,22 +395,9 @@ export function StundenzettelTab({
                 value={what}
                 onChange={(e) => setWhat(e.target.value)}
               >
+                {/* Chỉ in cả tháng – bản theo tuần làm khách rối, đã bỏ. */}
                 <option value="stundenzettel">Bảng chấm công (Stundenzettel) — cả tháng</option>
-                {weeks.map((w) => (
-                  <option key={`sz-${w.weekStart}`} value={`sz-${w.weekStart}`}>
-                    Bảng chấm công (Stundenzettel) — tuần {w.label}
-                  </option>
-                ))}
                 <option value="month">Lịch làm việc — cả tháng</option>
-                {weeks.map((w) => {
-                  const printed = (previewStore.schedule.printedWeeks ?? []).includes(w.weekStart);
-                  return (
-                    <option key={w.weekStart} value={w.weekStart}>
-                      Lịch làm việc — tuần {w.label}
-                      {printed ? " ✓ (đã xuất)" : ""}
-                    </option>
-                  );
-                })}
               </select>
             </label>
 
@@ -496,22 +484,15 @@ export function StundenzettelTab({
 
           {!hasSchedule && (
             <p className="mt-2 text-sm text-slate-400">
-              Chưa có lịch. Sang tab „Lịch làm việc" để tạo.
+              Chưa có lịch — bấm Tạo lịch.
             </p>
           )}
           {!isScheduleYearAllowed(schedule.year) && (
             <p role="alert" className="mt-2 text-sm text-rose-700">
-              Chỉ xuất lịch cho các năm {SCHEDULE_YEAR_RANGE_LABEL}. Tạo lịch cho năm trong khoảng này ở tab „Lịch làm việc".
+              Chỉ xuất lịch cho các năm {SCHEDULE_YEAR_RANGE_LABEL}. Hãy chọn năm trong khoảng này.
             </p>
           )}
 
-          <p className="mt-2 text-xs text-slate-500">
-            <b>Bảng chấm công (Stundenzettel)</b> theo mẫu tiếng Đức để nộp — một tờ mỗi người, chọn
-            cả tháng hoặc từng tuần. <b>Lịch làm việc</b> là lịch treo ở quán (cả tháng hoặc từng
-            tuần, cho cả quán hoặc một người). <b>Xuất lịch một tuần sẽ khóa lịch tháng</b> để bản
-            đã xuất luôn khớp với hệ thống. Trên máy tính, Chrome và Safari, PDF tải thẳng về máy; mở
-            app từ link trong Zalo/Messenger/Facebook thì bấm <b>Lưu / Chia sẻ PDF</b> sau khi tạo.
-          </p>
 
           {isLocked && (
             <div className="mt-3 rounded bg-amber-50 border border-amber-200 text-amber-900 text-sm px-3 py-2">
@@ -522,8 +503,8 @@ export function StundenzettelTab({
                 .
               </div>
               <div className="mt-0.5">
-                Không sửa được ca, không đổi nhân viên. Vẫn in được bình thường. (Tạo lại lịch ở tab
-                „Lịch làm việc" cũng sẽ mở khóa.)
+                Không sửa được ca, không đổi nhân viên. Vẫn in được bình thường. Bấm Tạo lịch cũng
+                mở khóa.
               </div>
 
               {/*
@@ -572,11 +553,13 @@ export function StundenzettelTab({
         {previewEmployee && (
           <>
             <div className="mb-1 text-xs text-slate-500">
-              Xem trước bảng chấm công: <b>{previewStore.storeConfig.shortName} · {previewEmployee.name}</b>
-              {wholeStore && " (chọn một người ở ô „Cho ai“ để xem người khác)"}
+              Xem trước: <b>{previewEmployee.name}</b>
             </div>
-            <div className="rounded-lg border border-slate-300 shadow-sm bg-white overflow-x-auto">
-              <StundenzettelPage schedule={previewStore.schedule} employee={previewEmployee} />
+            {/* Ganze A4-Seite sichtbar: auf die Breite verkleinert statt seitlich scrollen. */}
+            <div className="rounded-lg border border-slate-300 shadow-sm bg-white">
+              <FitToWidth>
+                <StundenzettelPage schedule={previewStore.schedule} employee={previewEmployee} />
+              </FitToWidth>
             </div>
           </>
         )}

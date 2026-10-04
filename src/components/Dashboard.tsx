@@ -140,7 +140,7 @@ export function Dashboard({ store }: { store: UseScheduleReturn }) {
 
       {notGenerated && schedule.employees.length > 0 && (
         <div className="mt-2 rounded bg-sky-50 border border-sky-200 text-sky-800 text-sm px-3 py-2">
-          Chưa có lịch. Sang tab „Lịch làm việc" và bấm „Tạo lịch làm việc".
+          Chưa có lịch — bấm Tạo lịch.
         </div>
       )}
 

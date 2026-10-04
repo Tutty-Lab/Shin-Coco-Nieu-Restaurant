@@ -9,7 +9,6 @@ import { DocsTab } from "./components/DocsTab";
 import { Dashboard } from "./components/Dashboard";
 import { LockScreen } from "./components/LockScreen";
 import { isAuthenticated, logout } from "./lib/auth";
-import { monthLabel } from "./lib/shiftOps";
 import { MONTH_NAMES_VI } from "./lib/dateFormat";
 import { isScheduleYearAllowed, SCHEDULE_YEARS } from "./lib/years";
 import { STORES } from "./lib/stores";
@@ -19,13 +18,18 @@ const VIEW_KEY = "stundenzettel-app:view-store";
 
 type TabId = "einstellungen" | "mitarbeiter" | "dienstplan" | "stundenzettel";
 
-/** Die Arbeits-Tabs. „Tài liệu" ist bewusst KEIN Tab – es öffnet sich über die Kopfzeile. */
+/**
+ * Alle Ansichten. Sichtbar als Tab sind nur die zwei, mit denen täglich
+ * gearbeitet wird (MAIN_TABS); Nhân viên, Cài đặt und Tài liệu stecken im
+ * Menü ☰ oben rechts – der Bildschirm soll für den Chủ quán aufgeräumt sein.
+ */
 const TABS: { id: TabId; label: string }[] = [
   { id: "einstellungen", label: "Cài đặt" },
   { id: "mitarbeiter", label: "Nhân viên" },
   { id: "dienstplan", label: "Lịch làm việc" },
   { id: "stundenzettel", label: "Bảng chấm công" },
 ];
+const MAIN_TABS: TabId[] = ["dienstplan", "stundenzettel"];
 
 export default function App() {
   const [unlocked, setUnlocked] = useState(() => isAuthenticated());
@@ -66,7 +70,8 @@ function MainApp({ onLogout }: { onLogout: () => void }) {
   // Kopf steuert alle; angezeigt wird der Stand der ersten Filiale.
   const primary = shin;
 
-  const [tab, setTab] = useState<TabId>("einstellungen");
+  const [tab, setTab] = useState<TabId>("dienstplan");
+  const [menuOpen, setMenuOpen] = useState(false);
   /** Trang Tài liệu mở riêng; đóng lại thì về đúng tab đang làm. */
   const [docsOpen, setDocsOpen] = useState(false);
 
@@ -146,30 +151,14 @@ function MainApp({ onLogout }: { onLogout: () => void }) {
       <header className="no-print bg-slate-900 text-white shadow sticky top-0 z-30">
         <div className="mx-auto max-w-[1500px] px-3 sm:px-4 py-3 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
           <div>
-            <h1 className="text-base sm:text-lg font-semibold">
+            {/* Nur der Titel – Version und Unterzeile weggelassen (Wunsch: aufgeräumt).
+                Nur ein SYNC-FEHLER wird gezeigt: dann liegen Daten nur auf diesem Gerät. */}
+            <h1 className="text-base sm:text-lg font-semibold" title={`bản ${__BUILD__}`}>
               Lịch làm việc &amp; Bảng chấm công
-              <span className="ml-2 align-middle text-[10px] font-normal text-slate-400">bản {__BUILD__}</span>
             </h1>
-            <p className="text-xs text-slate-300">
-              {view.storeConfig.name} ·{" "}
-              {monthLabel(primary.schedule.year, primary.schedule.month)}
-              {(() => {
-                const anyOn = stores.some((s) => s.remoteStatus !== "off");
-                if (!anyOn) return null;
-                const anyError = stores.some((s) => s.remoteStatus === "error");
-                const anySaving = stores.some((s) => s.remoteStatus === "saving");
-                return (
-                  <span className={anyError ? "ml-2 text-rose-300" : "ml-2 text-slate-400"}>
-                    ·{" "}
-                    {anySaving
-                      ? "đang đồng bộ…"
-                      : anyError
-                        ? "lỗi đồng bộ — dữ liệu chỉ lưu trên máy này"
-                        : "đã đồng bộ"}
-                  </span>
-                );
-              })()}
-            </p>
+            {stores.some((s) => s.remoteStatus === "error") && (
+              <p className="text-xs text-rose-300">Lỗi đồng bộ — dữ liệu chỉ lưu trên máy này</p>
+            )}
           </div>
           <div className="flex flex-wrap items-center gap-2">
             {/* Quán đang xem + tháng/năm (tháng dùng chung cho mọi quán – bản in phải cùng kỳ). */}
@@ -188,59 +177,94 @@ function MainApp({ onLogout }: { onLogout: () => void }) {
               </select>
               <select
                 aria-label="Tháng"
-                value={primary.schedule.month}
-                onChange={(e) => setPeriod({ month: Number(e.target.value) })}
-                className="rounded-md border border-slate-600 bg-white px-2 py-1.5 text-sm font-medium text-slate-900"
-              >
-                {MONTH_NAMES_VI.map((name, i) => (
-                  <option key={name} value={i + 1} className="bg-white text-slate-900">
-                    {name}
-                  </option>
-                ))}
-              </select>
-              <select
-                aria-label="Năm"
-                value={primary.schedule.year}
-                onChange={(e) => setPeriod({ year: Number(e.target.value) })}
+                value={`${primary.schedule.year}-${primary.schedule.month}`}
+                onChange={(e) => {
+                  const [year, month] = e.target.value.split("-").map(Number);
+                  setPeriod({ year, month });
+                }}
                 className="rounded-md border border-slate-600 bg-white px-2 py-1.5 text-sm font-medium text-slate-900"
               >
                 {(isScheduleYearAllowed(primary.schedule.year)
                   ? SCHEDULE_YEARS
                   : [primary.schedule.year, ...SCHEDULE_YEARS]
-                ).map((y) => (
-                  <option key={y} value={y} className="bg-white text-slate-900">
-                    {y}
-                  </option>
-                ))}
+                ).flatMap((y) =>
+                  MONTH_NAMES_VI.map((_, i) => (
+                    <option key={`${y}-${i + 1}`} value={`${y}-${i + 1}`} className="bg-white text-slate-900">
+                      {String(i + 1).padStart(2, "0")}/{y}
+                    </option>
+                  )),
+                )}
               </select>
             </div>
-            <button
-              type="button"
-              onClick={() => setDocsOpen((open) => !open)}
-              aria-pressed={docsOpen}
-              className={`rounded px-3 py-2 text-sm ${docsOpen ? "bg-white text-slate-900" : "bg-slate-700 hover:bg-slate-600"}`}
-            >
-              Tài liệu
-            </button>
-            <button
-              onClick={() => {
-                if (confirm(`Xoá toàn bộ dữ liệu của cả ${stores.length} quán?`)) {
-                  for (const s of stores) s.resetAll();
-                }
-              }}
-              className="rounded bg-slate-700 px-3 py-2 text-sm hover:bg-slate-600"
-            >
-              Xoá dữ liệu
-            </button>
-            <button
-              onClick={() => {
-                logout();
-                onLogout();
-              }}
-              className="rounded bg-slate-700 px-3 py-2 text-sm hover:bg-slate-600"
-            >
-              Đăng xuất
-            </button>
+            {/* Menu: alles, was nicht täglich gebraucht wird. */}
+            <div className="relative">
+              <button
+                type="button"
+                onClick={() => setMenuOpen((open) => !open)}
+                aria-expanded={menuOpen}
+                aria-haspopup="menu"
+                className={`rounded px-3 py-2 text-sm font-medium ${menuOpen ? "bg-white text-slate-900" : "bg-slate-700 hover:bg-slate-600"}`}
+              >
+                ☰ Menu
+              </button>
+              {menuOpen && (
+                <>
+                  {/* Klick daneben schliesst das Menü. */}
+                  <div className="fixed inset-0 z-40" onClick={() => setMenuOpen(false)} />
+                  <div
+                    role="menu"
+                    className="absolute right-0 z-50 mt-2 w-52 overflow-hidden rounded-lg border border-slate-200 bg-white py-1 text-sm text-slate-800 shadow-lg"
+                  >
+                    {(
+                      [
+                        ["Nhân viên", () => openTab("mitarbeiter")],
+                        ["Cài đặt", () => openTab("einstellungen")],
+                        ["Tài liệu", () => setDocsOpen(true)],
+                      ] as const
+                    ).map(([label, action]) => (
+                      <button
+                        key={label}
+                        type="button"
+                        role="menuitem"
+                        onClick={() => {
+                          action();
+                          setMenuOpen(false);
+                        }}
+                        className="block w-full px-4 py-2 text-left hover:bg-slate-50"
+                      >
+                        {label}
+                      </button>
+                    ))}
+                    <div className="my-1 border-t border-slate-100" />
+                    <button
+                      type="button"
+                      role="menuitem"
+                      onClick={() => {
+                        setMenuOpen(false);
+                        if (confirm(`Xoá toàn bộ dữ liệu của cả ${stores.length} quán?`)) {
+                          for (const s of stores) s.resetAll();
+                        }
+                      }}
+                      className="block w-full px-4 py-2 text-left text-rose-700 hover:bg-rose-50"
+                    >
+                      Xoá dữ liệu
+                    </button>
+                    <button
+                      type="button"
+                      role="menuitem"
+                      onClick={() => {
+                        setMenuOpen(false);
+                        logout();
+                        onLogout();
+                      }}
+                      className="block w-full px-4 py-2 text-left hover:bg-slate-50"
+                    >
+                      Đăng xuất
+                    </button>
+                  </div>
+                </>
+              )}
+            </div>
           </div>
         </div>
       </header>
@@ -251,7 +275,7 @@ function MainApp({ onLogout }: { onLogout: () => void }) {
 
       <nav className="no-print mx-auto max-w-[1500px] px-3 sm:px-4 mt-4">
         <div className="flex flex-wrap gap-2">
-          {TABS.map((t) => {
+          {TABS.filter((t) => MAIN_TABS.includes(t.id)).map((t) => {
             const active = !docsOpen && tab === t.id;
             return (
               <button
@@ -268,13 +292,27 @@ function MainApp({ onLogout }: { onLogout: () => void }) {
               </button>
             );
           })}
+          {/* Aus dem Menü geöffnet (Nhân viên / Cài đặt): zeigen, wo man ist, und zurück. */}
+          {!docsOpen && !MAIN_TABS.includes(tab) && (
+            <span className="inline-flex items-center gap-1 rounded-full border border-slate-900 bg-slate-900 py-2 pl-3.5 pr-2 text-sm font-medium text-white">
+              {TABS.find((t) => t.id === tab)?.label}
+              <button
+                type="button"
+                onClick={() => openTab("dienstplan")}
+                aria-label="Đóng"
+                className="rounded-full px-1.5 text-slate-300 hover:text-white"
+              >
+                ✕
+              </button>
+            </span>
+          )}
           <button
             type="button"
             onClick={() => setGenDialogOpen(true)}
             disabled={stores.every((s) => s.schedule.employees.length === 0)}
             className="ml-auto rounded-lg bg-slate-900 px-4 py-2 text-sm font-medium text-white hover:bg-slate-700 active:bg-slate-800 disabled:opacity-40"
           >
-            Tạo lịch làm việc
+            Tạo lịch
           </button>
         </div>
       </nav>

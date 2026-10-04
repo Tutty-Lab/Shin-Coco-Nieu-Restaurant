@@ -136,8 +136,8 @@ export function ScheduleTab({ store }: { store: UseScheduleReturn }) {
         <div className="mb-3 rounded bg-amber-50 border border-amber-200 text-amber-900 text-sm px-3 py-2">
           Lịch tháng này đã khóa vì đã in
           {schedule.lockedAt && ` lúc ${new Date(schedule.lockedAt).toLocaleString("vi-VN")}`} — chỉ
-          xem, không sửa được. Mở khóa ở tab <b>Bảng chấm công</b>, hoặc bấm{" "}
-          <b>„Tạo lịch làm việc"</b> để tạo lại (sẽ mở khóa).
+          xem, không sửa được. Mở khóa ở tab <b>Bảng chấm công</b>, hoặc bấm <b>Tạo lịch</b> để
+          tạo lại.
         </div>
       )}
 
@@ -205,7 +205,6 @@ export function ScheduleTab({ store }: { store: UseScheduleReturn }) {
               </button>
             );
           })}
-          {view === "week" && <span className="text-xs text-slate-500">In tuần ở tab „Bảng chấm công".</span>}
         </div>
       )}
 
