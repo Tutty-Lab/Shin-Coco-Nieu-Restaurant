@@ -25,6 +25,7 @@ import { datesOfMonth } from "../lib/demand";
 import { publicHolidays } from "../lib/holidays";
 import { initialScheduleFor, storeById, withSharedPersonDefaults, type StoreConfig } from "../lib/stores";
 import { applyMigrations } from "../lib/migrations";
+import { restoreSavedPlan, withSavedPlan, withoutSavedPlan } from "../lib/savedPlans";
 import { isEmployedOn } from "../lib/availability";
 import { contractOpenDays } from "../lib/contract";
 import { weekStartOf } from "../lib/weeks";
@@ -76,6 +77,7 @@ function normalizeSchedule(raw: Schedule | undefined, store: StoreConfig): Sched
     shifts: raw.shifts ?? [],
     lockedAt: raw.lockedAt,
     underQuotaAccepted: raw.underQuotaAccepted === true ? true : undefined,
+    savedPlans: Array.isArray(raw.savedPlans) ? raw.savedPlans : [],
     printedWeeks: Array.isArray(raw.printedWeeks) ? raw.printedWeeks : [],
     migrations: Array.isArray(raw.migrations) ? raw.migrations : [],
   });
@@ -289,6 +291,17 @@ export function useSchedule(storeId: string) {
   );
 
   /** Merkt eine ausgegebene Woche und sperrt den Monat beim ersten Mal. */
+  // ----- Gespeicherte Stände -----
+  const savePlan = useCallback(() => setSchedule((s) => withSavedPlan(s, "manual")), []);
+  const restorePlan = useCallback((id: string) => {
+    setSchedule((s) => {
+      const next = restoreSavedPlan(s, id);
+      setOriginalShifts(next.shifts.map((sh) => ({ ...sh })));
+      return next;
+    });
+  }, []);
+  const deletePlan = useCallback((id: string) => setSchedule((s) => withoutSavedPlan(s, id)), []);
+
   const markWeekPrinted = useCallback(
     (weekStart: string) => {
       const current = latest.current;
@@ -384,7 +397,11 @@ export function useSchedule(storeId: string) {
         seed: `${year}-${month}-${Date.now()}-${genNonce.current++}`,
       });
       // Neuer Plan: ein früheres „Bỏ qua cảnh báo" gilt nicht mehr.
-      setSchedule((s) => ({ ...s, year, month, shifts, lockedAt: undefined, printedWeeks: [], underQuotaAccepted: undefined }));
+      // Den bisherigen Plan vorher sichern – auch den des Vormonats.
+      setSchedule((s) => ({
+        ...withSavedPlan(s, "auto"),
+        year, month, shifts, lockedAt: undefined, printedWeeks: [], underQuotaAccepted: undefined,
+      }));
       setOriginalShifts(shifts.map((sh) => ({ ...sh })));
       setGenStamp((n) => n + 1);
       return shifts;
@@ -520,6 +537,9 @@ export function useSchedule(storeId: string) {
     openDates,
     isLocked,
     markWeekPrinted,
+    savePlan,
+    restorePlan,
+    deletePlan,
     unlockMonth,
     genError,
     genStamp,

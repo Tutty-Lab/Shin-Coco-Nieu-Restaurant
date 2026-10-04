@@ -3,6 +3,7 @@ import type { UseScheduleReturn } from "../hooks/useSchedule";
 import type { Employee } from "../types";
 import { StundenzettelPage } from "./StundenzettelPage";
 import { FitToWidth } from "./FitToWidth";
+import { SavedPlans } from "./SavedPlans";
 import type { SchedulePrintLayout } from "./SchedulePrintPage";
 import {
   buildDienstplanPdfFor,
@@ -548,6 +549,9 @@ export function StundenzettelTab({
             </div>
           )}
         </div>
+
+        {/* Bản đã lưu của quán đang xem (tự lưu trước mỗi lần Tạo lịch). */}
+        {stores.length === 1 && <SavedPlans store={stores[0]} />}
 
         {/* Xem trước trên màn hình cho nhân viên đã chọn */}
         {previewEmployee && (

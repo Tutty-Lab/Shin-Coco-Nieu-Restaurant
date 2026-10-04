@@ -5,6 +5,7 @@
 
 import type { WeekdayKey } from "./lib/demand";
 import type { DateOverride, DayWindow, WorkHoursConfig } from "./lib/workHours";
+import type { SavedPlan } from "./lib/savedPlans";
 
 /**
  * Anstellungsart. MINIJOB ist arbeitsrechtlich eine Form der Teilzeit und wird
@@ -131,4 +132,6 @@ export type Schedule = {
    * bewusst hingenommen (Popup nach „Tạo lịch"). Ein neuer Plan setzt es zurück.
    */
   underQuotaAccepted?: boolean;
+  /** Gesicherte frühere Stände des Plans, jüngster zuerst (lib/savedPlans.ts). */
+  savedPlans?: SavedPlan[];
 };
