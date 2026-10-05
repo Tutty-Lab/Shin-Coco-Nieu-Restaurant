@@ -1,4 +1,4 @@
-import type { Employee, Shift } from "../types";
+import type { Employee, PreferredWindow, Shift } from "../types";
 import { DAY_WEIGHTS, datesOfMonth, parseIsoDate, weekdayKeyOf, type WeekdayKey } from "./demand";
 import { monthlyTargetMinutesFor, weeklyBudgetMinutes, weeklyTargetMinutes } from "./contract";
 import { calculatePause } from "./time";
@@ -7,6 +7,7 @@ import { consecutiveRunLengthWith } from "./consecutive";
 import { effectiveWeekdayKey, resolveDay, type DayBlocks, type DayWindow, type OverrideMap, type WorkHoursConfig } from "./workHours";
 import { publicHolidays } from "./holidays";
 import { weekStartOf } from "./weeks";
+import { minutesOutsidePreferred, ownShiftRangeMinutes, preferredWindowsOf } from "./preferredWindows";
 import {
   CLOSING_START,
   STAFFING_RULES,
@@ -32,6 +33,8 @@ type Ctx = {
   blocked: Map<string, Set<string>>;
   /** Teil des Cache-Schlüssels, damit Filialen nicht dasselbe Tagesmodell nutzen. */
   tag: string;
+  /** „Khung giờ ưu tiên" je employeeId – nur wer welche gesetzt hat. */
+  windows: Map<string, PreferredWindow[]>;
 };
 
 type WeeklyInput = {
@@ -63,6 +66,14 @@ const MAX_PAID = 480;
 const SLOT_DEVIATION_COST = 300;
 /** Small preference for one continuous shift over a split shift on the same day. */
 const SPLIT_SHIFT_COST = 8;
+/**
+ * „Khung giờ ưu tiên": Aufschlag je Arbeitsminute außerhalb der Wunschfenster.
+ * Ein 3-h-Dienst an einem Tag ohne Fenster kostet 18.000 – mehr als die übliche
+ * Abweichung vom Tagesziel (1.500 je Stunde²), damit der Wunsch nicht dem
+ * Feinschliff der Kurve weicht. Fehlt eine Besetzungsregel über mehrere halbe
+ * Stunden (je 15.000), geht sie trotzdem vor.
+ */
+const OUTSIDE_WINDOW_COST = 100;
 
 function hash(value: string): number {
   let result = 0;
@@ -234,6 +245,10 @@ function dayCost(shifts: Shift[], blocks: DayBlocks, weekday: WeekdayKey, target
   for (let i = 0; i < counts.length; i++) cost += (counts[i] - model.targets[i]) ** 2 * SLOT_DEVIATION_COST;
   const paidHours = shifts.reduce((sum, shift) => sum + shift.paidMinutes, 0) / 60;
   cost += (paidHours - (targetHours ?? 0)) ** 2 * 1500;
+  for (const shift of shifts) {
+    const windows = ctx.windows.get(shift.employeeId);
+    if (windows) cost += minutesOutsidePreferred(windows, dayOf(shift.date), shift) * OUTSIDE_WINDOW_COST;
+  }
   return cost;
 }
 
@@ -241,6 +256,10 @@ function dayLimit(employee: Employee): number {
   return Math.min(6, employee.maxDaysPerWeek ?? 6);
 }
 
+/**
+ * Woche einer Person planen. Mit „Độ dài ca" zuerst nur in dieser Länge; reicht
+ * das für das Wochensoll nicht, gilt die Standardlänge (die Regel ist weich).
+ */
 function chooseWeek(
   employee: Employee,
   dates: string[],
@@ -251,6 +270,26 @@ function chooseWeek(
   dailyTargets: Map<string, number>,
   ctx: Ctx,
 ): Choice[] {
+  const own = employee.fixedShift ? null : ownShiftRangeMinutes(employee);
+  const withOwn = chooseWeekWith(employee, dates, target, existing, days, holidays, dailyTargets, ctx, own);
+  if (!own) return withOwn;
+  const paidOf = (choices: Choice[]) => choices.reduce((sum, choice) => sum + choice.paid, 0);
+  if (paidOf(withOwn) >= target) return withOwn;
+  const plain = chooseWeekWith(employee, dates, target, existing, days, holidays, dailyTargets, ctx, null);
+  return paidOf(plain) > paidOf(withOwn) ? plain : withOwn;
+}
+
+function chooseWeekWith(
+  employee: Employee,
+  dates: string[],
+  target: number,
+  existing: Shift[],
+  days: Map<string, Day>,
+  holidays: Set<string>,
+  dailyTargets: Map<string, number>,
+  ctx: Ctx,
+  own: { min: number; max: number } | null,
+): Choice[] {
   // Wer an diesem Tag schon im anderen Laden steht, ist hier nicht verfügbar –
   // die Läden liegen weit auseinander, zwei Dienste am selben Tag gehen nicht.
   const busy = ctx.blocked.get(employee.id);
@@ -259,9 +298,18 @@ function chooseWeek(
   if (target <= 0 || limit <= 0) return [];
   const fixed = employee.fixedShift ? fixedPaid(employee.fixedShift) : 0;
   if (employee.fixedShift && fixed === 0) return [];
+  // Mit „Độ dài ca" folgt die Tageszahl der Wunschlänge; „Rải đều" nimmt das
+  // kurze Ende (mehr, dafür kürzere Tage).
+  const ownCount = own
+    ? employee.spreadEvenly
+      ? Math.floor(target / own.min)
+      : Math.round(target / ((own.min + own.max) / 2))
+    : 0;
   const preferredCount = fixed
     ? Math.min(limit, Math.floor(target / fixed))
-    : Math.min(limit, Math.max(1, Math.floor(target / MIN_SHIFT)));
+    : own
+      ? Math.min(limit, Math.max(1, ownCount))
+      : Math.min(limit, Math.max(1, Math.floor(target / MIN_SHIFT)));
 
   // ±1,5 h um den Durchschnitt: genug Spielraum, damit Stoßtage (Gewicht 1,5)
   // längere und Normaltage kürzere Dienste bekommen können.
@@ -278,7 +326,11 @@ function chooseWeek(
 
   const durations = new Set<number>();
   if (fixed) durations.add(fixed);
-  else if (target < MIN_SHIFT) durations.add(target);
+  else if (own) {
+    for (let duration = own.min; duration <= own.max; duration += SLOT) {
+      if (duration <= target) durations.add(duration);
+    }
+  } else if (target < MIN_SHIFT) durations.add(target);
   else {
     for (let duration = lo; duration <= hi; duration += SLOT) {
       if (duration <= target) durations.add(duration);
@@ -319,7 +371,7 @@ function chooseWeek(
     // Continuous days (CN/lễ, one long block): a single shift always spans the
     // afternoon unless it is short. Allow the full 3–9 h range there and a soft
     // length preference, so lunch-only and evening-only shifts can shape both peaks.
-    const continuous = day.blocks.length === 1 && !fixed && target >= MIN_SHIFT;
+    const continuous = day.blocks.length === 1 && !fixed && !own && target >= MIN_SHIFT;
     const dayDurations = continuous
       ? Array.from({ length: Math.floor((Math.min(MAX_PAID, target) - MIN_SHIFT) / SLOT) + 1 }, (_, i) => MIN_SHIFT + i * SLOT)
       : [...durations];
@@ -402,11 +454,13 @@ function topUpShortfalls(
     if (employee.fixedShift) continue; // feste Schicht bleibt unangetastet
     const target = targets.get(employee.id) ?? 0;
     const paidOf = (list: Shift[]) => list.reduce((sum, shift) => sum + shift.paidMinutes, 0);
+    // „Độ dài ca": lieber einen Tag wachsen lassen, der danach noch darin liegt.
+    const ownMax = ownShiftRangeMinutes(employee)?.max;
     let guard = 0;
     while (guard++ < 60) {
       const own = shifts.filter((shift) => shift.employeeId === employee.id);
       if (target - paidOf(own) < SLOT) break;
-      let best: { old: Shift; next: Shift; cost: number } | undefined;
+      let best: { old: Shift; next: Shift; cost: number; over: boolean } | undefined;
       for (const shift of own) {
         const day = days.get(shift.date);
         if (!day || day.closed) continue;
@@ -416,6 +470,7 @@ function topUpShortfalls(
         if (!block) continue;
         const sameDay = own.filter((other) => other.date === shift.date);
         if (paidOf(sameDay) + SLOT > MAX_PAID) continue;
+        const over = ownMax != null && paidOf(sameDay) + SLOT > ownMax;
         const paid = shift.paidMinutes + SLOT;
         if (paid > MAX_PAID) continue;
         const week = weekStartOf(shift.date);
@@ -437,7 +492,9 @@ function topUpShortfalls(
           );
           if (clash) continue;
           const cost = dayCost([...others, grown], day.blocks, weekday, dailyTargets.get(shift.date), ctx) - before;
-          if (!best || cost < best.cost) best = { old: shift, next: grown, cost };
+          if (!best || (best.over && !over) || (best.over === over && cost < best.cost)) {
+            best = { old: shift, next: grown, cost, over };
+          }
         }
       }
       if (!best) break;
@@ -530,6 +587,11 @@ export function generateWeeklySchedule(input: WeeklyInput, existing: Shift[] = [
     weights: input.weights ?? DAY_WEIGHTS,
     blocked: new Map(Object.entries(input.blockedDays ?? {}).map(([id, dates]) => [id, new Set(dates)])),
     tag: input.storeTag ?? "default",
+    windows: new Map(
+      input.employees
+        .map((employee) => [employee.id, preferredWindowsOf(employee)] as const)
+        .filter(([, windows]) => windows.length > 0),
+    ),
   };
   const holidays = input.holidays ?? publicHolidays(input.year);
   const days = new Map(datesOfMonth(input.year, input.month).map((date) => [

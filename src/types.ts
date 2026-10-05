@@ -15,6 +15,13 @@ export type EmploymentType = "VOLLZEIT" | "TEILZEIT" | "MINIJOB";
 
 export type ShiftType = "EARLY" | "LATE" | "CUSTOM";
 
+/** „Khung giờ ưu tiên": an diesen Wochentagen möglichst in diesem Fenster arbeiten. */
+export type PreferredWindow = {
+  days: WeekdayKey[];
+  startMinutes: number;
+  endMinutes: number;
+};
+
 export type Employee = {
   id: string;
   name: string;
@@ -81,6 +88,24 @@ export type Employee = {
    * belegt dann keinen Tag doppelt, denn die Läden liegen weit auseinander.
    */
   personKey?: string;
+  /**
+   * „Độ dài ca" (weich, übernommen aus Thienlong): bezahlte Stunden je
+   * Arbeitstag, z. B. 3–4 h. Der Planer bleibt darin, solange das Soll der
+   * Woche so erreichbar ist; sonst gilt die Standardlänge. Fehlt = Standard.
+   */
+  shiftHours?: { min: number; max: number };
+  /**
+   * „Rải đều trong tháng" (weich): mit „Độ dài ca" lieber mehr, dafür kürzere
+   * Arbeitstage. Die Wochen sind hier ohnehin gleichmäßig verteilt (das
+   * Monats-Soll wird je Woche nach offenen Tagen aufgeteilt).
+   */
+  spreadEvenly?: boolean;
+  /**
+   * „Khung giờ ưu tiên" (weich): Wunsch-Tage und -Uhrzeiten. Ist mindestens ein
+   * Fenster gesetzt, kostet jede Arbeitsminute außerhalb einen Aufschlag – an
+   * Tagen ohne Fenster also der ganze Dienst. Besetzungsregeln gehen vor.
+   */
+  preferredWindows?: PreferredWindow[];
 };
 
 export type Shift = {

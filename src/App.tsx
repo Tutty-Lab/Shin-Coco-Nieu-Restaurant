@@ -19,17 +19,17 @@ const VIEW_KEY = "stundenzettel-app:view-store";
 type TabId = "einstellungen" | "mitarbeiter" | "dienstplan" | "stundenzettel";
 
 /**
- * Alle Ansichten. Sichtbar als Tab sind nur die zwei, mit denen täglich
- * gearbeitet wird (MAIN_TABS); Nhân viên, Cài đặt und Tài liệu stecken im
- * Menü ☰ oben rechts – der Bildschirm soll für den Chủ quán aufgeräumt sein.
+ * Alle Ansichten. Sichtbar als Tab sind die drei, mit denen täglich gearbeitet
+ * wird (MAIN_TABS); Cài đặt und Tài liệu stecken im Menü ☰ oben rechts – der
+ * Bildschirm soll für den Chủ quán aufgeräumt sein.
  */
 const TABS: { id: TabId; label: string }[] = [
-  { id: "einstellungen", label: "Cài đặt" },
-  { id: "mitarbeiter", label: "Nhân viên" },
   { id: "dienstplan", label: "Lịch làm việc" },
   { id: "stundenzettel", label: "Bảng chấm công" },
+  { id: "mitarbeiter", label: "Nhân viên" },
+  { id: "einstellungen", label: "Cài đặt" },
 ];
-const MAIN_TABS: TabId[] = ["dienstplan", "stundenzettel"];
+const MAIN_TABS: TabId[] = ["dienstplan", "stundenzettel", "mitarbeiter"];
 
 export default function App() {
   const [unlocked, setUnlocked] = useState(() => isAuthenticated());
@@ -40,8 +40,9 @@ export default function App() {
 
 function MainApp({ onLogout }: { onLogout: () => void }) {
   // Alle Filialen laufen gleichzeitig – jede mit eigenem State, eigener
-  // Persistenz und eigener Sync. ANGEZEIGT wird nur der Laden, der oben neben
-  // dem Monat gewählt ist (drei Läden untereinander waren zu lang). Erzeugt
+  // Persistenz und eigener Sync. ANGEZEIGT wird nur der Laden, der in der
+  // Reihe unter den Tabs gewählt ist (drei Läden untereinander waren zu lang);
+  // die Kennzahlen oben zählen alle Läden zusammen. Erzeugt
   // wird weiterhin für alle zusammen, wegen der Leute in zwei Läden.
   const shin = useSchedule(STORES[0].id);
   const coco = useSchedule(STORES[1].id);
@@ -161,20 +162,8 @@ function MainApp({ onLogout }: { onLogout: () => void }) {
             )}
           </div>
           <div className="flex flex-wrap items-center gap-2">
-            {/* Quán đang xem + tháng/năm (tháng dùng chung cho mọi quán – bản in phải cùng kỳ). */}
-            <div className="inline-flex items-center gap-1.5" aria-label="Chọn quán và kỳ">
-              <select
-                aria-label="Quán"
-                value={view.storeId}
-                onChange={(e) => chooseStore(e.target.value)}
-                className="rounded-md border border-slate-600 bg-white px-2 py-1.5 text-sm font-semibold text-slate-900"
-              >
-                {stores.map((s) => (
-                  <option key={s.storeId} value={s.storeId} className="bg-white text-slate-900">
-                    {s.storeConfig.shortName}
-                  </option>
-                ))}
-              </select>
+            {/* Tháng/năm dùng chung cho mọi quán – bản in phải cùng kỳ. Quán chọn ở hàng nhãn dưới các tab. */}
+            <div className="inline-flex items-center gap-1.5" aria-label="Chọn kỳ">
               <select
                 aria-label="Tháng"
                 value={`${primary.schedule.year}-${primary.schedule.month}`}
@@ -231,7 +220,6 @@ function MainApp({ onLogout }: { onLogout: () => void }) {
                   >
                     {(
                       [
-                        ["Nhân viên", () => openTab("mitarbeiter")],
                         ["Cài đặt", () => openTab("einstellungen")],
                         ["Tài liệu", () => setDocsOpen(true)],
                       ] as const
@@ -284,7 +272,7 @@ function MainApp({ onLogout }: { onLogout: () => void }) {
       </header>
 
       <div className="no-print mx-auto max-w-[1500px] px-3 sm:px-4 pt-4 space-y-4">
-        <Dashboard store={view} />
+        <Dashboard stores={stores} view={view} onChooseStore={chooseStore} />
       </div>
 
       <nav className="no-print mx-auto max-w-[1500px] px-3 sm:px-4 mt-4">
@@ -316,6 +304,31 @@ function MainApp({ onLogout }: { onLogout: () => void }) {
           </button>
         </div>
       </nav>
+
+      {/* Quán đang xem – một hàng nhãn dùng chung cho mọi tab (thay ô chọn quán ở đầu trang). */}
+      {!docsOpen && (
+        <div className="no-print mx-auto max-w-[1500px] px-3 sm:px-4 mt-3">
+          <div role="tablist" aria-label="Quán" className="inline-flex rounded-lg border border-slate-200 bg-white p-1">
+            {stores.map((s) => {
+              const active = s.storeId === view.storeId;
+              return (
+                <button
+                  key={s.storeId}
+                  type="button"
+                  role="tab"
+                  aria-selected={active}
+                  onClick={() => chooseStore(s.storeId)}
+                  className={`rounded-md px-3 py-1.5 text-sm font-medium ${
+                    active ? "bg-slate-900 text-white" : "text-slate-600 hover:bg-slate-100 hover:text-slate-900"
+                  }`}
+                >
+                  {s.storeConfig.shortName}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      )}
 
       {/* Popup chọn tháng/năm – nhắc kiểm tra ngày lễ/giờ đặc biệt, cảnh báo thay lịch và mở khóa. */}
       {genDialogOpen && (

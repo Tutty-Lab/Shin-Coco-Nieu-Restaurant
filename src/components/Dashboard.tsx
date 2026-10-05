@@ -4,13 +4,32 @@ import type { Employee, Schedule } from "../types";
 import { minutesToDecimalHours } from "../lib/time";
 import { monthlyTargetMinutesFor } from "../lib/contract";
 
-function Stat({ label, value, accent }: { label: string; value: string; accent?: string }) {
+function Stat({
+  label,
+  value,
+  accent,
+  detail,
+  detailOnPhone = false,
+}: {
+  label: string;
+  value: string;
+  accent?: string;
+  /** Kleine Zeile darunter, z. B. die Aufteilung je Laden. */
+  detail?: React.ReactNode;
+  /** Auf dem Handy nur zeigen, wo sie nötig ist – sonst wird die Kachel zu hoch. */
+  detailOnPhone?: boolean;
+}) {
   return (
     <div className="rounded-lg bg-white border border-slate-200 px-2.5 py-1.5 sm:px-3 sm:py-2 shadow-sm">
       <div className="text-[11px] sm:text-xs text-slate-500 leading-tight">{label}</div>
       <div className={`text-base sm:text-lg font-semibold leading-tight ${accent ?? "text-slate-900"}`}>
         {value}
       </div>
+      {detail && (
+        <div className={`mt-0.5 text-[11px] leading-tight text-slate-400 ${detailOnPhone ? "" : "hidden sm:block"}`}>
+          {detail}
+        </div>
+      )}
     </div>
   );
 }
@@ -89,64 +108,165 @@ function underQuotaReason(emp: Employee | undefined, schedule: Schedule): string
   return `do ${parts.join("; ")}.`;
 }
 
-export function Dashboard({ store }: { store: UseScheduleReturn }) {
-  const { schedule, validation, peakGaps, openDates } = store;
-  const vz = schedule.employees.filter((e) => e.employmentType === "VOLLZEIT").length;
-  const tz = schedule.employees.filter((e) => e.employmentType === "TEILZEIT").length;
-  const mj = schedule.employees.filter((e) => e.employmentType === "MINIJOB").length;
-  const byId = new Map(schedule.employees.map((e) => [e.id, e] as const));
+/** Kennzahlen EINES Ladens – Grundlage für die Summen und für die Hinweise. */
+function storeFigures(store: UseScheduleReturn) {
+  const { schedule, validation, openDates } = store;
   // Wochenverträge (weeklyHours) haben targetMinutes = 0; das Monats-Soll wird
   // erst über die offenen Tage abgeleitet (contract.ts), genau wie in der Prüfung.
   const targetMin = schedule.employees.reduce((s, e) => s + monthlyTargetMinutesFor(e, openDates, schedule.workHours), 0);
   const plannedMin = schedule.shifts.reduce((s, x) => s + x.paidMinutes, 0);
-  const uncoveredMin = Math.max(0, targetMin - plannedMin);
-  const notGenerated = schedule.shifts.length === 0;
-
   // Warnungen und Fehler getrennt: ein zu hohes Monats-Soll macht den Plan nicht
   // unbrauchbar, es fehlen nur Stunden, die der Monat nicht hergibt.
   const alleWarnungen = validation.errors.filter((e) => e.severity === "warning");
   // Vom Chủ quán im Popup nach „Tạo lịch" bewusst übergangen -> nicht mehr anzeigen.
   const accepted = schedule.underQuotaAccepted === true;
-  const warnungen = accepted ? [] : alleWarnungen;
-  const fehler = validation.errors.filter((e) => e.severity !== "warning");
+  return {
+    targetMin,
+    plannedMin,
+    uncoveredMin: Math.max(0, targetMin - plannedMin),
+    notGenerated: schedule.shifts.length === 0,
+    alleWarnungen,
+    accepted,
+    warnungen: accepted ? [] : alleWarnungen,
+    fehler: validation.errors.filter((e) => e.severity !== "warning"),
+  };
+}
 
-  const statusValue = notGenerated
-    ? "Chưa tạo lịch"
-    : fehler.length > 0
-      ? `${fehler.length} lỗi`
-      : warnungen.length > 0
-        ? `${warnungen.length} cảnh báo`
-        : "Hợp lệ";
-  const statusAccent = notGenerated
-    ? "text-slate-500"
-    : fehler.length > 0
-      ? "text-rose-600"
-      : warnungen.length > 0
-        ? "text-amber-600"
-        : "text-emerald-600";
+const hours = (min: number) => `${minutesToDecimalHours(min, 1)} h`;
+/** Aufteilung je Laden: ganze Stunden reichen und halten die Zeile kurz. */
+const roundHours = (min: number) => `${minutesToDecimalHours(min, 0)} h`;
+
+/**
+ * Kennzahlen als SUMME aller Läden („Tạo lịch" plant alle zusammen), darunter
+ * je Laden aufgeteilt. Die Hinweise darunter gelten für den gewählten Laden;
+ * ein Klick auf einen Laden im Prüfstatus wechselt dorthin.
+ */
+export function Dashboard({
+  stores,
+  view,
+  onChooseStore,
+}: {
+  stores: readonly UseScheduleReturn[];
+  view: UseScheduleReturn;
+  onChooseStore: (storeId: string) => void;
+}) {
+  const figures = stores.map((s) => ({ store: s, f: storeFigures(s) }));
+  const sum = (pick: (f: ReturnType<typeof storeFigures>) => number) => figures.reduce((t, x) => t + pick(x.f), 0);
+  const perStore = (text: (x: (typeof figures)[number]) => string) =>
+    figures.map((x) => `${x.store.storeConfig.shortName} ${text(x)}`).join(" · ");
+
+  const allEmployees = stores.flatMap((s) => s.schedule.employees);
+  // Wer in mehreren Läden arbeitet (gleicher personKey), ist EIN Mensch.
+  const people = new Set(
+    stores.flatMap((s) => s.schedule.employees.map((e) => e.personKey || `${s.storeId}:${e.id}`)),
+  ).size;
+  const sharedPeople = allEmployees.length - people;
+  const countType = (type: Employee["employmentType"]) => allEmployees.filter((e) => e.employmentType === type).length;
+
+  const targetMin = sum((f) => f.targetMin);
+  const plannedMin = sum((f) => f.plannedMin);
+  const uncoveredMin = sum((f) => f.uncoveredMin);
+  const fehlerCount = sum((f) => f.fehler.length);
+  const warnCount = sum((f) => f.warnungen.length);
+  const notGeneratedCount = figures.filter((x) => x.f.notGenerated && x.store.schedule.employees.length > 0).length;
+
+  const statusValue =
+    notGeneratedCount === stores.length
+      ? "Chưa tạo lịch"
+      : fehlerCount > 0
+        ? `${fehlerCount} lỗi`
+        : warnCount > 0
+          ? `${warnCount} cảnh báo`
+          : notGeneratedCount > 0
+            ? `${notGeneratedCount} quán chưa có lịch`
+            : "Hợp lệ";
+  const statusAccent =
+    notGeneratedCount === stores.length
+      ? "text-slate-500"
+      : fehlerCount > 0
+        ? "text-rose-600"
+        : warnCount > 0 || notGeneratedCount > 0
+          ? "text-amber-600"
+          : "text-emerald-600";
+
+  // Je Laden ein Kurzstatus zum Antippen – so sieht man, WO das Problem liegt.
+  const storeStatus = figures.map(({ store, f }) => {
+    const [text, cls] = f.notGenerated
+      ? ["chưa tạo", "text-slate-400"]
+      : f.fehler.length > 0
+        ? [`${f.fehler.length} lỗi`, "text-rose-600"]
+        : f.warnungen.length > 0
+          ? [`${f.warnungen.length} cảnh báo`, "text-amber-600"]
+          : ["ổn", "text-emerald-600"];
+    return (
+      <button
+        key={store.storeId}
+        type="button"
+        onClick={() => onChooseStore(store.storeId)}
+        className={`underline-offset-2 hover:underline ${store.storeId === view.storeId ? "font-semibold" : ""}`}
+      >
+        {store.storeConfig.shortName} <span className={cls}>{text}</span>
+      </button>
+    );
+  });
 
   return (
     <div>
       <div className="grid grid-cols-2 md:grid-cols-4 xl:grid-cols-8 gap-2">
-        <Stat label="Số nhân viên" value={String(schedule.employees.length)} />
-        <Stat label="Toàn thời gian" value={String(vz)} />
-        <Stat label="Bán thời gian" value={String(tz)} />
-        <Stat label="Minijob" value={String(mj)} />
-        <Stat label="Tổng giờ định mức" value={`${minutesToDecimalHours(targetMin, 1)} h`} />
-        <Stat label="Tổng giờ đã xếp" value={`${minutesToDecimalHours(plannedMin, 1)} h`} />
-        <Stat label="Giờ chưa thể xếp" value={`${minutesToDecimalHours(uncoveredMin, 1)} h`} accent={uncoveredMin ? "text-amber-600" : "text-emerald-600"} />
-        <Stat label="Trạng thái kiểm tra" value={statusValue} accent={statusAccent} />
+        <Stat
+          label="Số nhân viên"
+          value={String(people)}
+          detailOnPhone
+          detail={
+            <>
+              {perStore((x) => String(x.store.schedule.employees.length))}
+              {sharedPeople > 0 && <> · {sharedPeople} người làm nhiều quán</>}
+            </>
+          }
+        />
+        <Stat label="Toàn thời gian" value={String(countType("VOLLZEIT"))} />
+        <Stat label="Bán thời gian" value={String(countType("TEILZEIT"))} />
+        <Stat label="Minijob" value={String(countType("MINIJOB"))} />
+        <Stat label="Tổng giờ định mức" value={hours(targetMin)} detail={perStore((x) => roundHours(x.f.targetMin))} />
+        <Stat label="Tổng giờ đã xếp" value={hours(plannedMin)} detail={perStore((x) => roundHours(x.f.plannedMin))} />
+        <Stat
+          label="Giờ chưa thể xếp"
+          value={hours(uncoveredMin)}
+          accent={uncoveredMin ? "text-amber-600" : "text-emerald-600"}
+          detail={perStore((x) => roundHours(x.f.uncoveredMin))}
+        />
+        <Stat
+          label="Trạng thái kiểm tra"
+          value={statusValue}
+          accent={statusAccent}
+          detailOnPhone
+          detail={<span className="flex flex-wrap gap-x-2">{storeStatus}</span>}
+        />
       </div>
 
+      <StoreNotes store={view} />
+    </div>
+  );
+}
+
+/** Hinweise (Fehler, fehlende Stunden, Spitzenzeiten) für den gewählten Laden. */
+function StoreNotes({ store }: { store: UseScheduleReturn }) {
+  const { schedule, peakGaps } = store;
+  const { notGenerated, fehler, warnungen, alleWarnungen, accepted } = storeFigures(store);
+  const byId = new Map(schedule.employees.map((e) => [e.id, e] as const));
+  const name = store.storeConfig.shortName;
+
+  return (
+    <div>
       {notGenerated && schedule.employees.length > 0 && (
         <div className="mt-2 rounded bg-sky-50 border border-sky-200 text-sky-800 text-sm px-3 py-2">
-          Chưa có lịch — bấm Tạo lịch.
+          {name}: chưa có lịch — bấm Tạo lịch.
         </div>
       )}
 
       {/* Lỗi: gộp sau nút (i). */}
       {fehler.length > 0 && (
-        <InfoNote tone="error" summary={`${fehler.length} lỗi cần sửa trước khi dùng lịch`}>
+        <InfoNote tone="error" summary={`${name}: ${fehler.length} lỗi cần sửa trước khi dùng lịch`}>
           <ul className="space-y-1">
             {fehler.map((e, i) => (
               <li key={i}>{e.message}</li>
@@ -157,7 +277,7 @@ export function Dashboard({ store }: { store: UseScheduleReturn }) {
 
       {accepted && alleWarnungen.length > 0 && schedule.shifts.length > 0 && (
         <div className="mt-2 flex flex-wrap items-center gap-2 text-xs text-slate-500">
-          <span>Đã bỏ qua {alleWarnungen.length} cảnh báo thiếu giờ định mức.</span>
+          <span>{name}: đã bỏ qua {alleWarnungen.length} cảnh báo thiếu giờ định mức.</span>
           <button
             type="button"
             onClick={() => store.updateMeta({ underQuotaAccepted: undefined })}
@@ -170,7 +290,7 @@ export function Dashboard({ store }: { store: UseScheduleReturn }) {
 
       {/* Cảnh báo thiếu giờ: một dòng + (i) mở chi tiết vì sao từng người. */}
       {warnungen.length > 0 && schedule.shifts.length > 0 && (
-        <InfoNote tone="warning" summary={`${warnungen.length} người chưa đủ giờ định mức (lịch vẫn dùng được)`}>
+        <InfoNote tone="warning" summary={`${name}: ${warnungen.length} người chưa đủ giờ định mức (lịch vẫn dùng được)`}>
           <ul className="space-y-1.5">
             {warnungen.map((w, i) => {
               const emp = w.employeeId ? byId.get(w.employeeId) : undefined;
@@ -192,7 +312,7 @@ export function Dashboard({ store }: { store: UseScheduleReturn }) {
 
       {/* Cao điểm lệch số người: một dòng + (i). */}
       {peakGaps.length > 0 && (
-        <InfoNote tone="warning" summary={`${peakGaps.length} ngày lệch số người ở giờ cao điểm`}>
+        <InfoNote tone="warning" summary={`${name}: ${peakGaps.length} ngày lệch số người ở giờ cao điểm`}>
           <div className="space-y-0.5">
             {peakGaps.slice(0, 8).map((d) => (
               <div key={d.date}>

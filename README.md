@@ -38,11 +38,23 @@ EINE PDF mit den Seiten aller Läden aus.
   einem Tag, an dem er schon im Shin steht, plant Nieu ihn nicht ein – die Orte
   liegen zu weit auseinander. Damit überhaupt Tage frei bleiben, ist er im Shin
   auf 5 Tage je Woche begrenzt.
-- **Wer in mehreren Läden arbeitet, wird im Tab „Nhân viên" verbunden:** unter
-  „Nâng cao" → „Cũng làm ở quán khác" je anderem Laden die Person wählen
+- **Wer in mehreren Läden arbeitet, wird im Tab „Nhân viên" verbunden:** im
+  Abschnitt „Cũng làm ở quán khác" je anderem Laden die Person wählen
   (`src/lib/sharedPerson.ts`). Beide bekommen denselben `personKey`; „không"
   löst die Verbindung auf beiden Seiten.
 - **Nieu 37 hat montags geöffnet** (Einstellung im Laden, `closedWeekdays`).
+- **Mitarbeiterformular wie in der Thienlong-App:** Thông tin · Giờ làm (Số
+  ngày làm / tuần = `maxDaysPerWeek`) · Ngày nghỉ cố định (= Kehrseite von
+  `availableWeekdays`) · Luật riêng · Luật cứng. Die **weichen Regeln**
+  („Luật riêng", `src/lib/preferredWindows.ts`) gelten nur für Leute, die sie
+  gesetzt haben – alle anderen werden Schicht für Schicht wie vorher geplant:
+  - *Độ dài ca* (`shiftHours`): bezahlte Stunden je Arbeitstag, auf 3–8 h
+    begrenzt. Reicht das für das Wochensoll nicht, gilt die Standardlänge.
+  - *Rải đều trong tháng* (`spreadEvenly`): mit Độ dài ca mehr, dafür kürzere
+    Tage. Die Wochen sind ohnehin gleichmäßig verteilt.
+  - *Khung giờ ưu tiên* (`preferredWindows`): Minuten außerhalb kosten einen
+    Aufschlag. Vorrang haben das Soll und die Besetzungsregeln (z. B. ist
+    Di/Mi mittags im Shin schon voll).
 
 ## Belegschaft (Angabe des Betriebs, Stunden je MONAT)
 
