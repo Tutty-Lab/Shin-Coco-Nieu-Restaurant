@@ -56,6 +56,22 @@ EINE PDF mit den Seiten aller Läden aus.
     Aufschlag. Vorrang haben das Soll und die Besetzungsregeln (z. B. ist
     Di/Mi mittags im Shin schon voll).
 
+## Luật cứng / luật mềm (`src/lib/rules.ts`)
+
+Jede Regel ist entweder **hart** (der Planer bricht sie nie; verletzt eine
+Hand-Änderung sie, ist das ein roter Fehler) oder **weich** (der Planer
+versucht es; geht es nicht, gelbe Warnung). Die Liste steht im Dashboard
+(„Luật xếp lịch") und im Tab Tài liệu. Jeder Prüfbefund trägt seine Regel
+(`ValidationError.rule`).
+
+**„Tìm cách xếp khác"** (`src/lib/suggestions.ts`, wie in der Thienlong-App):
+probiert Lockerungen je Mitarbeiter – einen Ngày nghỉ cố định freigeben, Số
+ngày làm / tuần +1, Độ dài ca bzw. Khung giờ weg, bei Leuten in zwei Läden im
+früher geplanten Laden einen Tag weniger – erzeugt je Variante Probe-Pläne
+ALLER Läden und vergleicht: zuerst harte Verstöße, dann fehlende Vertragsstunden,
+dann weiche Abweichungen. Gezeigt werden nur echte Verbesserungen; „Áp dụng"
+ändert die Einstellung und plant alle Läden für den offenen Monat neu.
+
 ## Belegschaft (Angabe des Betriebs, Stunden je MONAT)
 
 **Shin:** Ba Viet Nguyen 169 (Feiertagsdienst, zweiter Job im Nieu), Quoc Tu

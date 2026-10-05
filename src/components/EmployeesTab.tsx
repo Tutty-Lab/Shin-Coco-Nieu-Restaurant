@@ -641,7 +641,7 @@ function EmployeeSheet({
           </SheetSection>
 
           <SheetSection title="Ngày nghỉ cố định">
-            <DayButtons selected={d.daysOff} onToggle={(day) => set("daysOff", toggle(d.daysOff, day))} />
+            <DayButtons selected={d.daysOff} onToggle={(day) => setD((prev) => ({ ...prev, daysOff: toggle(prev.daysOff, day) }))} />
             <p className="text-xs text-slate-400">
               {d.daysOff.length === 0
                 ? "Không chọn = làm được mọi ngày quán mở. Ngày quán đóng cửa thì không cần chọn."
@@ -674,13 +674,13 @@ function EmployeeSheet({
             <div className="space-y-2">
               <FieldLabel hint="app ưu tiên xếp ngày và giờ vào đây">Khung giờ ưu tiên</FieldLabel>
               {d.windows.map((w, i) => {
-                const update = (patch: Partial<Draft["windows"][number]>) =>
-                  set("windows", d.windows.map((x, k) => (k === i ? { ...x, ...patch } : x)));
+                const update = (patch: (w: Draft["windows"][number]) => Partial<Draft["windows"][number]>) =>
+                  setD((prev) => ({ ...prev, windows: prev.windows.map((x, k) => (k === i ? { ...x, ...patch(x) } : x)) }));
                 return (
                   <div key={i} className="space-y-2 rounded-lg border border-slate-200 p-2">
                     <DayButtons
                       selected={w.days}
-                      onToggle={(day) => update({ days: toggle(w.days, day) })}
+                      onToggle={(day) => update((x) => ({ days: toggle(x.days, day) }))}
                       activeClass="border-teal-700 bg-teal-700 text-white"
                     />
                     <div className="grid grid-cols-[1fr_auto_1fr_auto] items-center gap-2">
@@ -689,7 +689,7 @@ function EmployeeSheet({
                         step={1800}
                         className={`${inputClass} w-full`}
                         value={w.start}
-                        onChange={(e) => update({ start: e.target.value })}
+                        onChange={(e) => { const start = e.target.value; update(() => ({ start })); }}
                       />
                       <span className="text-slate-400">–</span>
                       <input
@@ -697,7 +697,7 @@ function EmployeeSheet({
                         step={1800}
                         className={`${inputClass} w-full`}
                         value={w.end}
-                        onChange={(e) => update({ end: e.target.value })}
+                        onChange={(e) => { const end = e.target.value; update(() => ({ end })); }}
                       />
                       <button
                         type="button"

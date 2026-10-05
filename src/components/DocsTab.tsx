@@ -10,6 +10,7 @@ import {
   type DemandBand,
 } from "../lib/staffing";
 import { DEFAULT_WORK_HOURS } from "../lib/workHours";
+import { RULES } from "../lib/rules";
 import type { StoreConfig } from "../lib/stores";
 import { SHIFT_LENGTHS } from "../lib/shifts";
 import { calculatePause, minutesToTime, presenceFromPaid } from "../lib/time";
@@ -193,6 +194,30 @@ export function DocsTab({ stores }: { stores: StoreConfig[] }) {
           )}
           <li><b>Ngày làm {SHIFT_LENGTHS[0]}–{SHIFT_LENGTHS[SHIFT_LENGTHS.length - 1]} giờ công.</b> Mỗi ca nằm gọn trong một khung mở, nên ca trưa dài nhất 3,5h (khung trưa chỉ 11:30–15:00). Một người có thể làm cả trưa lẫn tối trong ngày; khi chia hai ca như vậy, phần ngắn hơn ít nhất <b>2 giờ</b>. Ca đứng một mình không bao giờ dưới 3 giờ.</li>
         </ul>
+      </Section>
+
+      <Section title="Luật cứng và luật mềm">
+        <p className="mb-2">
+          <b>Luật cứng</b>: app không bao giờ phá; lịch sửa tay mà phá thì báo lỗi đỏ. <b>Luật mềm</b>: app xếp
+          theo khi được; không được thì báo vàng, và nút <b>Tìm cách xếp khác</b> thử nới thiết lập của từng nhân
+          viên, tạo lịch thử cả các quán, rồi chỉ gợi ý cách nào tốt hơn kèm nút <b>Áp dụng</b>.
+        </p>
+        <div className="grid gap-3 sm:grid-cols-2">
+          {(["hard", "soft"] as const).map((kind) => (
+            <div key={kind}>
+              <div className={`font-semibold ${kind === "hard" ? "text-rose-700" : "text-amber-700"}`}>
+                {kind === "hard" ? "Luật cứng" : "Luật mềm"}
+              </div>
+              <ul className="mt-1 list-disc space-y-1 pl-5">
+                {RULES.filter((r) => r.kind === kind).map((r) => (
+                  <li key={r.id}>
+                    <b>{r.title}.</b> {r.detail}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          ))}
+        </div>
       </Section>
 
       <Section title="2. Hệ số ngày và giờ công mỗi ngày">

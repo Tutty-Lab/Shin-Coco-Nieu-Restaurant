@@ -1,8 +1,10 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import type { UseScheduleReturn } from "../hooks/useSchedule";
 import type { Employee, Schedule } from "../types";
 import { minutesToDecimalHours } from "../lib/time";
 import { monthlyTargetMinutesFor } from "../lib/contract";
+import { RULES, ruleById } from "../lib/rules";
+import { findFixes, issuesOf, type EmployeeChange, type FixResult, type Score, type TrialStore } from "../lib/suggestions";
 
 function Stat({
   label,
@@ -127,7 +129,8 @@ function storeFigures(store: UseScheduleReturn) {
     notGenerated: schedule.shifts.length === 0,
     alleWarnungen,
     accepted,
-    warnungen: accepted ? [] : alleWarnungen,
+    // „Bỏ qua cảnh báo" gilt nur für fehlende Vertragsstunden.
+    warnungen: accepted ? alleWarnungen.filter((w) => w.rule !== "contract-hours") : alleWarnungen,
     fehler: validation.errors.filter((e) => e.severity !== "warning"),
   };
 }
@@ -145,10 +148,13 @@ export function Dashboard({
   stores,
   view,
   onChooseStore,
+  onApplyFixes,
 }: {
   stores: readonly UseScheduleReturn[];
   view: UseScheduleReturn;
   onChooseStore: (storeId: string) => void;
+  /** „Áp dụng" eines Vorschlags: Einstellungen ändern und alle Läden neu planen. */
+  onApplyFixes: (changes: EmployeeChange[]) => void;
 }) {
   const figures = stores.map((s) => ({ store: s, f: storeFigures(s) }));
   const sum = (pick: (f: ReturnType<typeof storeFigures>) => number) => figures.reduce((t, x) => t + pick(x.f), 0);
@@ -244,17 +250,46 @@ export function Dashboard({
         />
       </div>
 
-      <StoreNotes store={view} />
+      <StoreNotes store={view} stores={stores} onApplyFixes={onApplyFixes} />
     </div>
   );
 }
 
-/** Hinweise (Fehler, fehlende Stunden, Spitzenzeiten) für den gewählten Laden. */
-function StoreNotes({ store }: { store: UseScheduleReturn }) {
-  const { schedule, peakGaps } = store;
-  const { notGenerated, fehler, warnungen, alleWarnungen, accepted } = storeFigures(store);
+const trialStoreOf = (store: UseScheduleReturn): TrialStore => ({
+  storeId: store.storeId,
+  shortName: store.storeConfig.shortName,
+  schedule: store.schedule,
+  rules: store.storeConfig.staffingRules,
+  weights: store.storeConfig.dayWeights,
+});
+
+/**
+ * Hinweise für den gewählten Laden, getrennt nach „Luật cứng" (rot) und
+ * „Luật mềm" (gelb, nach Regel gruppiert), dazu „Tìm cách xếp khác".
+ */
+function StoreNotes({
+  store,
+  stores,
+  onApplyFixes,
+}: {
+  store: UseScheduleReturn;
+  stores: readonly UseScheduleReturn[];
+  onApplyFixes: (changes: EmployeeChange[]) => void;
+}) {
+  const { schedule } = store;
+  const { notGenerated, alleWarnungen, accepted } = storeFigures(store);
   const byId = new Map(schedule.employees.map((e) => [e.id, e] as const));
   const name = store.storeConfig.shortName;
+
+  const { issues } = useMemo(() => issuesOf(trialStoreOf(store), schedule.shifts), [store, schedule.shifts]);
+  // „Bỏ qua cảnh báo" nach Tạo lịch: fehlende Stunden nicht mehr anzeigen.
+  const shown = issues.filter((issue) => !(accepted && issue.rule === "contract-hours"));
+  const hard = shown.filter((issue) => issue.hard);
+  const soft = shown.filter((issue) => !issue.hard);
+  const softGroups = RULES.filter((rule) => rule.kind === "soft")
+    .map((rule) => ({ rule, items: soft.filter((issue) => issue.rule === rule.id) }))
+    .filter((group) => group.items.length > 0);
+  const hasPlan = schedule.shifts.length > 0;
 
   return (
     <div>
@@ -264,20 +299,22 @@ function StoreNotes({ store }: { store: UseScheduleReturn }) {
         </div>
       )}
 
-      {/* Lỗi: gộp sau nút (i). */}
-      {fehler.length > 0 && (
-        <InfoNote tone="error" summary={`${name}: ${fehler.length} lỗi cần sửa trước khi dùng lịch`}>
-          <ul className="space-y-1">
-            {fehler.map((e, i) => (
-              <li key={i}>{e.message}</li>
+      {hasPlan && hard.length > 0 && (
+        <InfoNote tone="error" summary={`${name}: ${hard.length} lỗi luật cứng — cần sửa`}>
+          <ul className="space-y-1.5">
+            {hard.map((issue, i) => (
+              <li key={i}>
+                <span className="mr-1 rounded bg-rose-100 px-1 text-[11px] font-medium">{ruleById(issue.rule).title}</span>
+                {issue.message}
+              </li>
             ))}
           </ul>
         </InfoNote>
       )}
 
-      {accepted && alleWarnungen.length > 0 && schedule.shifts.length > 0 && (
+      {accepted && alleWarnungen.length > 0 && hasPlan && (
         <div className="mt-2 flex flex-wrap items-center gap-2 text-xs text-slate-500">
-          <span>{name}: đã bỏ qua {alleWarnungen.length} cảnh báo thiếu giờ định mức.</span>
+          <span>{name}: đã bỏ qua {alleWarnungen.filter((w) => w.rule === "contract-hours").length} cảnh báo thiếu giờ định mức.</span>
           <button
             type="button"
             onClick={() => store.updateMeta({ underQuotaAccepted: undefined })}
@@ -288,55 +325,159 @@ function StoreNotes({ store }: { store: UseScheduleReturn }) {
         </div>
       )}
 
-      {/* Cảnh báo thiếu giờ: một dòng + (i) mở chi tiết vì sao từng người. */}
-      {warnungen.length > 0 && schedule.shifts.length > 0 && (
-        <InfoNote tone="warning" summary={`${name}: ${warnungen.length} người chưa đủ giờ định mức (lịch vẫn dùng được)`}>
-          <ul className="space-y-1.5">
-            {warnungen.map((w, i) => {
-              const emp = w.employeeId ? byId.get(w.employeeId) : undefined;
-              return (
-                <li key={i}>
-                  <div>{w.message}</div>
-                  <div className="opacity-80">→ Vì sao: {underQuotaReason(emp, schedule)}</div>
-                </li>
-              );
-            })}
-          </ul>
-          <div className="mt-2 opacity-80">
-            App đã xếp kín các ngày hợp lệ trong từng tuần và chia đều giờ mỗi người. Không thể tự
-            chuyển giờ sang người/tuần khác vì sẽ vượt hợp đồng — muốn thêm giờ thì đổi ngày vào làm,
-            ngày nghỉ, availability hoặc hợp đồng của người đó.
+      {hasPlan && soft.length > 0 && (
+        <InfoNote
+          tone="warning"
+          summary={`${name}: ${soft.length} chỗ chưa đạt luật mềm (lịch vẫn dùng được) — ${softGroups
+            .map((g) => `${g.rule.title.toLowerCase()} ${g.items.length}`)
+            .join(" · ")}`}
+        >
+          <div className="space-y-3">
+            {softGroups.map(({ rule, items }) => (
+              <div key={rule.id}>
+                <div className="font-semibold">
+                  {rule.title} <span className="font-normal opacity-70">({items.length})</span>
+                </div>
+                <ul className="mt-1 space-y-1.5">
+                  {items.slice(0, 12).map((issue, i) => {
+                    const emp = issue.employeeId ? byId.get(issue.employeeId) : undefined;
+                    return (
+                      <li key={i}>
+                        <div>{issue.message}</div>
+                        {rule.id === "contract-hours" && (
+                          <div className="opacity-80">→ Vì sao: {underQuotaReason(emp, schedule)}</div>
+                        )}
+                      </li>
+                    );
+                  })}
+                  {items.length > 12 && <li className="opacity-70">… và {items.length - 12} chỗ nữa</li>}
+                </ul>
+              </div>
+            ))}
           </div>
         </InfoNote>
       )}
 
-      {/* Cao điểm lệch số người: một dòng + (i). */}
-      {peakGaps.length > 0 && (
-        <InfoNote tone="warning" summary={`${name}: ${peakGaps.length} ngày lệch số người ở giờ cao điểm`}>
-          <div className="space-y-0.5">
-            {peakGaps.slice(0, 8).map((d) => (
-              <div key={d.date}>
-                <b>{shortDate(d.date)}</b>{" "}
-                {d.peaks
-                  .filter((p) => !p.ok)
-                  .map((p) =>
-                    p.minStaff < p.required
-                      ? `${p.label} thiếu: ${p.minStaff}/${p.required} người`
-                      : `${p.label} thừa: ${p.maxStaff}, tối đa ${p.allowed}`,
-                  )
-                  .join(" · ")}{" "}
-                <span className="opacity-70">({d.shiftCount} ca, {d.paidHours}h)</span>
-              </div>
-            ))}
-            {peakGaps.length > 8 && <div className="opacity-70">… và {peakGaps.length - 8} ngày nữa</div>}
-          </div>
-          <div className="mt-2 opacity-80">
-            → Vì sao: tổng giờ trong ngày đủ định mức, nhưng phân bố theo giờ chưa khớp khung yêu cầu
-            (trưa 12–14h 3–7 người, tối 18–21h 4–7 người, luôn có người tới 15:00 và 22:00). Cách xử lý:
-            tăng định mức/thêm người cho ngày đó, sửa tay ca, hoặc chấp nhận vì lịch vẫn hợp lệ.
-          </div>
-        </InfoNote>
+      {hasPlan && (hard.length > 0 || soft.length > 0) && (
+        <FixFinder stores={stores} onApply={onApplyFixes} month={`${schedule.month}/${schedule.year}`} />
+      )}
+
+      <RulesList />
+    </div>
+  );
+}
+
+const scoreText = (score: Score) =>
+  `${score.hard} lỗi luật cứng · thiếu ${minutesToDecimalHours(score.missingMinutes, 1)} h định mức · ${score.soft} chỗ luật mềm`;
+
+/** „Tìm cách xếp khác": Probe-Pläne mit kleinen Änderungen, nur Verbesserungen mit „Áp dụng". */
+function FixFinder({
+  stores,
+  onApply,
+  month,
+}: {
+  stores: readonly UseScheduleReturn[];
+  onApply: (changes: EmployeeChange[]) => void;
+  month: string;
+}) {
+  const [busy, setBusy] = useState(false);
+  const [progress, setProgress] = useState<[number, number] | null>(null);
+  const [result, setResult] = useState<FixResult | null>(null);
+
+  const run = async () => {
+    setBusy(true);
+    setResult(null);
+    await new Promise((resolve) => setTimeout(resolve, 0)); // Knopf zuerst neu zeichnen
+    const found = await findFixes(stores.map(trialStoreOf), (done, total) => setProgress([done, total]));
+    setResult(found);
+    setBusy(false);
+    setProgress(null);
+  };
+
+  return (
+    <div className="mt-2 rounded-lg border border-emerald-200 bg-emerald-50/60 p-3">
+      <div className="flex flex-wrap items-center gap-2">
+        <div className="flex-1 min-w-[12rem] text-sm text-emerald-900">
+          <b>Tìm cách xếp khác:</b> app thử nới từng thiết lập của nhân viên (ngày nghỉ cố định, số ngày/tuần, độ
+          dài ca, khung giờ, người làm 2 quán), tạo lịch thử cả {stores.length} quán và chỉ gợi ý cách nào tốt hơn.
+        </div>
+        <button
+          type="button"
+          onClick={run}
+          disabled={busy}
+          className="rounded-lg bg-emerald-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-emerald-700 disabled:opacity-60"
+        >
+          {busy ? `Đang thử${progress ? ` ${progress[0]}/${progress[1]}` : ""}…` : "Tìm cách xếp khác"}
+        </button>
+      </div>
+
+      {result && (
+        <div className="mt-3 space-y-2">
+          <p className="text-xs text-slate-600">Tạo lại lịch theo thiết lập hiện tại: {scoreText(result.baseline)}.</p>
+          {result.options.length === 0 ? (
+            <p className="text-sm text-slate-700">
+              Đã thử nới thiết lập từng người: không cách nào tốt hơn. Cần đổi ở mức quán — thêm giờ mở cửa (Cài
+              đặt), thêm người, hoặc giảm giờ hợp đồng — hoặc bấm „Bỏ qua cảnh báo" nếu chấp nhận.
+            </p>
+          ) : (
+            <ul className="space-y-2">
+              {result.options.map((option) => {
+                const text = option.changes.map((c) => c.label).join(" + ");
+                return (
+                  <li
+                    key={text}
+                    className="flex flex-wrap items-center gap-2 rounded-lg border border-emerald-200 bg-white px-3 py-2"
+                  >
+                    <div className="flex-1 min-w-[12rem] text-sm">
+                      <div className="font-medium text-slate-900">{text}</div>
+                      <div className="text-xs text-slate-600">Sau khi đổi: {scoreText(option.score)}</div>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        if (!window.confirm(`Áp dụng: ${text}\n\nThiết lập nhân viên sẽ đổi và lịch tháng ${month} của cả ${stores.length} quán được tạo lại. Các ca sửa tay trong tháng sẽ bị thay.`)) return;
+                        onApply(option.changes);
+                        setResult(null);
+                      }}
+                      className="rounded-lg bg-slate-900 px-3 py-2 text-sm font-medium text-white hover:bg-slate-700"
+                    >
+                      Áp dụng
+                    </button>
+                  </li>
+                );
+              })}
+            </ul>
+          )}
+        </div>
       )}
     </div>
+  );
+}
+
+/** Welche Regeln hart, welche weich – zum Nachlesen. */
+function RulesList() {
+  return (
+    <details className="mt-2 rounded-lg border border-slate-200 bg-white text-sm">
+      <summary className="cursor-pointer px-3 py-2 text-slate-600">
+        Luật xếp lịch: <b className="text-slate-900">{RULES.filter((r) => r.kind === "hard").length} luật cứng</b> ·{" "}
+        <b className="text-slate-900">{RULES.filter((r) => r.kind === "soft").length} luật mềm</b>
+      </summary>
+      <div className="grid gap-3 border-t border-slate-100 px-3 py-2 sm:grid-cols-2">
+        {(["hard", "soft"] as const).map((kind) => (
+          <div key={kind}>
+            <div className={`font-semibold ${kind === "hard" ? "text-rose-700" : "text-amber-700"}`}>
+              {kind === "hard" ? "Luật cứng — app không bao giờ phá" : "Luật mềm — xếp theo khi được, không được thì báo"}
+            </div>
+            <ul className="mt-1 space-y-1">
+              {RULES.filter((r) => r.kind === kind).map((r) => (
+                <li key={r.id}>
+                  <b>{r.title}.</b> <span className="text-slate-600">{r.detail}</span>
+                </li>
+              ))}
+            </ul>
+          </div>
+        ))}
+      </div>
+    </details>
   );
 }

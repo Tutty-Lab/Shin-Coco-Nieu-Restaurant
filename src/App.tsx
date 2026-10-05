@@ -12,6 +12,7 @@ import { isAuthenticated, logout } from "./lib/auth";
 import { MONTH_NAMES_VI } from "./lib/dateFormat";
 import { isScheduleYearAllowed, SCHEDULE_YEARS } from "./lib/years";
 import { STORES } from "./lib/stores";
+import type { EmployeeChange } from "./lib/suggestions";
 
 /** Zuletzt angezeigter Laden (nur Ansicht, je Gerät). */
 const VIEW_KEY = "stundenzettel-app:view-store";
@@ -104,6 +105,25 @@ function MainApp({ onLogout }: { onLogout: () => void }) {
     }
   };
 
+  /**
+   * „Áp dụng" aus „Tìm cách xếp khác": erst die Einstellungen ändern, dann –
+   * NACH dem nächsten Rendern, wenn die Läden die neuen Mitarbeiter kennen –
+   * alle Läden für den offenen Monat neu planen.
+   */
+  const [regenPending, setRegenPending] = useState(false);
+  const applyFixes = (changes: EmployeeChange[]) => {
+    for (const change of changes) {
+      stores.find((s) => s.storeId === change.storeId)?.updateEmployee(change.employeeId, change.patch);
+    }
+    setRegenPending(true);
+  };
+  useEffect(() => {
+    if (!regenPending) return;
+    setRegenPending(false);
+    generateAll({ year: primary.schedule.year, month: primary.schedule.month });
+    openTab("dienstplan");
+  }, [regenPending]); // eslint-disable-line react-hooks/exhaustive-deps
+
   /** Monat/Jahr für ALLE Filialen setzen. */
   const setPeriod = (patch: { year?: number; month?: number }) => {
     for (const s of stores) s.updateMeta(patch);
@@ -128,18 +148,20 @@ function MainApp({ onLogout }: { onLogout: () => void }) {
     const allErrors = stores.flatMap((s) => s.validation.errors);
     const fehler = allErrors.filter((e) => e.severity !== "warning").length;
     const warn = allErrors.filter((e) => e.severity === "warning").length;
+    const underQuota = allErrors.filter((e) => e.rule === "contract-hours").length;
     setToast(
       fehler > 0
         ? `Đã tạo lịch ${stores.length} quán — nhưng còn ${fehler} lỗi, xem chi tiết ở phần trạng thái.`
         : warn > 0
-          ? `✓ Đã tạo lịch ${stores.length} quán (còn ${warn} cảnh báo thiếu giờ — bấm (i) để xem).`
+          ? `✓ Đã tạo lịch ${stores.length} quán (còn ${warn} cảnh báo${underQuota > 0 ? `, ${underQuota} người thiếu giờ` : ""} — bấm (i) để xem).`
           : `✓ Đã tạo lịch mới cho cả ${stores.length} quán — hợp lệ, đúng giờ hợp đồng.`,
     );
     const offen = stores
       .map((s) => ({
         storeId: s.storeId,
         name: s.storeConfig.shortName,
-        messages: s.validation.errors.filter((e) => e.severity === "warning").map((e) => e.message),
+        // Nur fehlende Vertragsstunden – Độ dài ca/Khung giờ stehen im Dashboard.
+        messages: s.validation.errors.filter((e) => e.rule === "contract-hours").map((e) => e.message),
       }))
       .filter((x) => x.messages.length > 0);
     setQuotaPopup(offen.length > 0 ? offen : null);
@@ -272,7 +294,7 @@ function MainApp({ onLogout }: { onLogout: () => void }) {
       </header>
 
       <div className="no-print mx-auto max-w-[1500px] px-3 sm:px-4 pt-4 space-y-4">
-        <Dashboard stores={stores} view={view} onChooseStore={chooseStore} />
+        <Dashboard stores={stores} view={view} onChooseStore={chooseStore} onApplyFixes={applyFixes} />
       </div>
 
       <nav className="no-print mx-auto max-w-[1500px] px-3 sm:px-4 mt-4">
@@ -371,6 +393,10 @@ function MainApp({ onLogout }: { onLogout: () => void }) {
                   </ul>
                 </div>
               ))}
+              <p className="rounded bg-emerald-50 px-3 py-2 text-emerald-900">
+                Muốn app tìm cách xếp đủ giờ: bấm <b>Để sau</b>, rồi bấm <b>Tìm cách xếp khác</b> ở phần cảnh báo phía trên —
+                app tạo lịch thử và gợi ý thay đổi kèm nút <b>Áp dụng</b>.
+              </p>
             </div>
             <div className="flex flex-wrap justify-end gap-2 border-t border-slate-100 px-5 py-3">
               <button

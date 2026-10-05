@@ -139,9 +139,9 @@ export function GenerateScheduleDialog({
             </div>
           )}
           {hasShifts && !sameMonth && (
-            <div className="rounded border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-900">
-              Lịch <b>{current}</b> đang có sẽ được <b>thay bằng lịch {target}</b> (app chỉ lưu một tháng). Xuất PDF
-              tháng hiện tại trước nếu còn cần.
+            <div className="rounded border border-sky-200 bg-sky-50 px-3 py-2 text-sm text-sky-900">
+              Lịch <b>{current}</b> <b>không bị xoá</b>: app cất vào <b>Lịch đã lưu</b>. Muốn xem lại, chọn{" "}
+              <b>{current}</b> ở ô tháng trên cùng.
             </div>
           )}
           {hasShifts && sameMonth && !isLocked && (
