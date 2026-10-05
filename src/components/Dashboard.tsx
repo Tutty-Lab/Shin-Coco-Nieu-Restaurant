@@ -1,9 +1,10 @@
 import { useMemo, useState } from "react";
 import type { UseScheduleReturn } from "../hooks/useSchedule";
-import type { Employee, Schedule } from "../types";
+import type { Employee } from "../types";
 import { minutesToDecimalHours } from "../lib/time";
 import { monthlyTargetMinutesFor } from "../lib/contract";
 import { RULES, ruleById } from "../lib/rules";
+import { explainShortfall } from "../lib/shortfall";
 import { findFixes, issuesOf, type EmployeeChange, type FixResult, type Score, type TrialStore } from "../lib/suggestions";
 
 function Stat({
@@ -34,12 +35,6 @@ function Stat({
       )}
     </div>
   );
-}
-
-/** "2026-08-27" -> "27.08." – kurz, weil oft mehrere Tage nebeneinander stehen. */
-function shortDate(iso: string): string {
-  const [, month, day] = iso.split("-");
-  return `${day}.${month}.`;
 }
 
 /**
@@ -85,29 +80,6 @@ function InfoNote({
       {open && <div className="border-t border-current/15 px-3 py-2 font-normal">{children}</div>}
     </div>
   );
-}
-
-/** Warum erreicht diese Person ihr Soll nicht? Aus ihren Feldern abgeleitet. */
-function underQuotaReason(emp: Employee | undefined, schedule: Schedule): string {
-  if (!emp) return "tháng này không đủ ngày cho định mức đó.";
-  const prefix = `${schedule.year}-${String(schedule.month).padStart(2, "0")}-`;
-  const parts: string[] = [];
-  if (emp.startDate && emp.startDate.startsWith(prefix)) {
-    parts.push(`vào làm từ ${shortDate(emp.startDate)} (các ngày trước không tính)`);
-  }
-  if (emp.endDate && emp.endDate.startsWith(prefix)) {
-    parts.push(`nghỉ việc từ ${shortDate(emp.endDate)} (các ngày sau không tính)`);
-  }
-  if (emp.availableWeekdays && emp.availableWeekdays.length > 0 && emp.availableWeekdays.length < 6) {
-    parts.push(`chỉ làm ${emp.availableWeekdays.length} ngày cố định trong tuần`);
-  }
-  if (emp.maxDaysPerWeek != null && emp.maxDaysPerWeek < 6) {
-    parts.push(`giới hạn ${emp.maxDaysPerWeek} ngày/tuần`);
-  }
-  if (parts.length === 0) {
-    return "hợp đồng cao hơn số giờ quán mở trong tháng (tối đa 8 giờ công/ngày, nghỉ 1 ngày mỗi tuần) — tháng này không đủ ngày để xếp đủ giờ.";
-  }
-  return `do ${parts.join("; ")}.`;
 }
 
 /** Kennzahlen EINES Ladens – Grundlage für die Summen und für die Hinweise. */
@@ -255,6 +227,40 @@ export function Dashboard({
   );
 }
 
+/** „Vì sao" mit echten Zahlen (freie Tage, anderer Laden, Höchstmenge) und „Cách sửa". */
+function ShortfallDetail({
+  store,
+  stores,
+  employee,
+}: {
+  store: UseScheduleReturn;
+  stores: readonly UseScheduleReturn[];
+  employee: Employee;
+}) {
+  const summary = store.validation.summaries.find((s) => s.employee.id === employee.id);
+  if (!summary) return null;
+  const { reasons, fixes } = explainShortfall(
+    employee,
+    summary.assignedMinutes,
+    summary.targetMinutes,
+    store.openDates,
+    stores
+      .filter((s) => s.storeId !== store.storeId)
+      .map((s) => ({ shortName: s.storeConfig.shortName, employees: s.schedule.employees, shifts: s.schedule.shifts })),
+    store.storeConfig.shortName,
+  );
+  return (
+    <div className="mt-0.5 space-y-0.5 opacity-90">
+      <div>
+        <b>Vì sao:</b> {reasons.join(" ")}
+      </div>
+      <div>
+        <b>Cách sửa:</b> {fixes.join(" · ")}
+      </div>
+    </div>
+  );
+}
+
 const trialStoreOf = (store: UseScheduleReturn): TrialStore => ({
   storeId: store.storeId,
   shortName: store.storeConfig.shortName,
@@ -344,9 +350,7 @@ function StoreNotes({
                     return (
                       <li key={i}>
                         <div>{issue.message}</div>
-                        {rule.id === "contract-hours" && (
-                          <div className="opacity-80">→ Vì sao: {underQuotaReason(emp, schedule)}</div>
-                        )}
+                        {rule.id === "contract-hours" && emp && <ShortfallDetail store={store} stores={stores} employee={emp} />}
                       </li>
                     );
                   })}

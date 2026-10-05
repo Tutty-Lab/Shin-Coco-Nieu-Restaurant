@@ -265,7 +265,7 @@ export function validateSchedule(
         severity: zuWenig ? "warning" : "error",
         rule: zuWenig ? "contract-hours" : "contract-max",
         message: zuWenig
-          ? `${emp.name}: mới xếp được ${minutesToShortHours(assignedMinutes)} / ${minutesToShortHours(soll)} — tháng này không đủ ngày cho định mức đó.`
+          ? `${emp.name}: thiếu ${minutesToShortHours(soll - assignedMinutes)} — mới xếp được ${minutesToShortHours(assignedMinutes)} / ${minutesToShortHours(soll)}.`
           : `${emp.name}: xếp quá giờ định mức: ${minutesToShortHours(assignedMinutes)} thay vì ${minutesToShortHours(soll)}.`,
       });
     }

@@ -51,3 +51,25 @@ describe("Tìm cách xếp khác", () => {
     expect(result.options.some((o) => o.changes.some((c) => c.label.startsWith("Ba Viet Nguyen (Shin)")))).toBe(false);
   }, 120_000);
 });
+
+describe("Vì sao thiếu giờ", () => {
+  it("Ba Viet im Nieu: nennt den anderen Laden, die freien Tage und die Höchstmenge", async () => {
+    const { explainShortfall } = await import("../shortfall");
+    const { openDatesOf } = await import("../suggestions");
+    const stores = trialStores();
+    const plans = planAll(stores);
+    const nieu = stores.find((s) => s.storeId === "nieu")!;
+    const baViet = nieu.schedule.employees.find((e) => e.name === "Ba Viet Nguyen")!;
+    const assigned = plans.get("nieu")!.filter((s) => s.employeeId === baViet.id).reduce((sum, s) => sum + s.paidMinutes, 0);
+    const { reasons, fixes } = explainShortfall(
+      baViet, assigned, baViet.targetMinutes, openDatesOf(nieu.schedule),
+      stores.filter((s) => s.storeId !== "nieu").map((s) => ({ shortName: s.shortName, employees: s.schedule.employees, shifts: plans.get(s.storeId)! })),
+      "Nieu 37",
+    );
+    const text = reasons.join(" ");
+    expect(text).toContain("Đang làm ở Shin");
+    expect(text).toMatch(/Còn \d+ ngày trống/);
+    expect(text).toContain("tối đa 32h");
+    expect(fixes.join(" ")).toContain("Ở Shin");
+  }, 60_000);
+});

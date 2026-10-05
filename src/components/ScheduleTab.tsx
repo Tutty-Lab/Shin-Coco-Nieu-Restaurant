@@ -19,6 +19,8 @@ import { employmentShortVi } from "../lib/employment";
 import { monthlyTargetMinutesFor, SCHEDULE_SLOT_MINUTES } from "../lib/contract";
 import { StaffingReport } from "./StaffingReport";
 import { PauseLabel } from "./PauseLabel";
+import type { PeakCoverage } from "../lib/analyze";
+import { ruleById, staffingRuleId } from "../lib/rules";
 
 function isWeekendKey(iso: string): boolean {
   const k = weekdayKeyOf(parseIsoDate(iso));
@@ -124,6 +126,19 @@ export function ScheduleTab({
     }
     return stats;
   }, [dates, schedule.shifts]);
+
+  // Chân bảng „ít nhất … người" je Besetzungsregel (wie Thienlong, ohne Bếp/Bồi):
+  // dieselben Zahlen, die auch die Prüfung benutzt – Tag → Label → Spannen.
+  const peaksByDay = useMemo(() => {
+    const map = new Map<string, { targetHours: number; byLabel: Map<string, PeakCoverage[]> }>();
+    for (const day of store.analysis.days) {
+      const byLabel = new Map<string, PeakCoverage[]>();
+      for (const peak of day.peaks) byLabel.set(peak.label, [...(byLabel.get(peak.label) ?? []), peak]);
+      map.set(day.date, { targetHours: day.targetHours, byLabel });
+    }
+    return map;
+  }, [store.analysis]);
+  const staffingRows = store.storeConfig.staffingRules;
 
   const hasEmployees = store.activeEmployees.length > 0;
 
@@ -381,8 +396,27 @@ export function ScheduleTab({
                 dates={gridDates}
                 value={(d) => minutesToShortHours(dayStats.get(d)!.total)}
               />
+              <SummaryRow
+                label="Giờ mục tiêu"
+                hint="theo hệ số ngày"
+                dates={gridDates}
+                value={(d) => {
+                  const day = peaksByDay.get(d);
+                  return day && day.targetHours > 0 ? minutesToShortHours(Math.round(day.targetHours * 2) * 30) : "–";
+                }}
+              />
               <SummaryRow label="Ca sáng" dates={gridDates} value={(d) => String(dayStats.get(d)!.early)} />
               <SummaryRow label="Ca tối" dates={gridDates} value={(d) => String(dayStats.get(d)!.late)} />
+              {schedule.shifts.length > 0 && staffingRows.map((rule) => (
+                <CoverageRow
+                  key={rule.label}
+                  label={rule.label}
+                  when={rule.when}
+                  hard={ruleById(staffingRuleId(rule.label)).kind === "hard"}
+                  dates={gridDates}
+                  peaks={(d) => peaksByDay.get(d)?.byLabel.get(rule.label)}
+                />
+              ))}
             </tfoot>
           </table>
         </div>
@@ -404,10 +438,12 @@ export function ScheduleTab({
 
 function SummaryRow({
   label,
+  hint,
   dates,
   value,
 }: {
   label: string;
+  hint?: string;
   dates: string[];
   value: (d: string) => string;
 }) {
@@ -415,6 +451,7 @@ function SummaryRow({
     <tr className="bg-slate-50 text-slate-600">
       <td className="sticky left-0 z-10 bg-slate-50 border-t border-r border-slate-200 px-2 py-1 font-medium whitespace-nowrap">
         {label}
+        {hint && <span className="ml-1 text-[11px] font-normal text-slate-400">{hint}</span>}
       </td>
       <td className="border-t border-slate-200" />
       <td className="border-t border-slate-200" />
@@ -423,6 +460,80 @@ function SummaryRow({
           {value(d)}
         </td>
       ))}
+      <td className="border-t border-l border-slate-200" />
+      <td className="border-t border-l border-slate-200" />
+    </tr>
+  );
+}
+
+/**
+ * Eine Besetzungsregel als Zeile: wie viele Leute in der Spanne da sind, als
+ * „vắng–đông" (kleinste–größte Zahl; bei „Trong giờ mở cửa" über beide Blöcke).
+ * Nur die kleinste Zahl zu zeigen las sich wie „abends weniger Leute", obwohl
+ * nur die letzte Stunde dünner war. Zu wenig → roter Rahmen „cần N",
+ * zu viele → gelber Rahmen „tối đa N". Gleiche Zahlen wie in der Prüfung.
+ */
+function CoverageRow({
+  label,
+  when,
+  hard,
+  dates,
+  peaks,
+}: {
+  label: string;
+  when: string;
+  hard: boolean;
+  dates: string[];
+  peaks: (d: string) => PeakCoverage[] | undefined;
+}) {
+  return (
+    <tr className="bg-slate-50 text-slate-600">
+      <td
+        className="sticky left-0 z-10 bg-slate-50 border-t border-r border-slate-200 px-2 py-1 font-medium whitespace-nowrap"
+        title={`${hard ? "Luật cứng" : "Luật mềm"}: ${label} ${when}`}
+      >
+        {label} <span className="text-[11px] font-normal text-slate-400">{when} · người (vắng–đông)</span>
+        <span
+          className={`ml-1 rounded px-1 text-[10px] font-medium ${hard ? "bg-rose-100 text-rose-700" : "bg-amber-100 text-amber-800"}`}
+        >
+          {hard ? "cứng" : "mềm"}
+        </span>
+      </td>
+      <td className="border-t border-slate-200" />
+      <td className="border-t border-slate-200" />
+      {dates.map((d) => {
+        const list = peaks(d);
+        if (!list || list.length === 0) {
+          return (
+            <td key={d} className="border-t border-l border-slate-200 px-1 py-1 text-center text-slate-300">
+              –
+            </td>
+          );
+        }
+        const min = Math.min(...list.map((p) => p.minStaff));
+        const max = Math.max(...list.map((p) => p.maxStaff));
+        const need = Math.max(...list.map((p) => p.required));
+        const allowed = Math.min(...list.map((p) => p.allowed));
+        const short = list.some((p) => p.minStaff < p.required);
+        const over = list.some((p) => p.maxStaff > p.allowed);
+        return (
+          <td
+            key={d}
+            className={`border-t border-l border-slate-200 px-1 py-1 text-center ${
+              short
+                ? "bg-rose-50 font-semibold text-rose-700 outline outline-2 -outline-offset-2 outline-rose-500"
+                : over
+                  ? "bg-amber-50 text-amber-800 outline outline-2 -outline-offset-2 outline-amber-400"
+                  : ""
+            }`}
+            title={`ít nhất ${min}, đông nhất ${max} · luật: ${need}${Number.isFinite(allowed) ? `–${allowed}` : "+"} người`}
+          >
+            {min === max ? min : `${min}–${max}`}
+            {short && <span className="block text-[10px] leading-none">cần {need}</span>}
+            {!short && over && <span className="block text-[10px] leading-none">tối đa {allowed}</span>}
+          </td>
+        );
+      })}
       <td className="border-t border-l border-slate-200" />
       <td className="border-t border-l border-slate-200" />
     </tr>
