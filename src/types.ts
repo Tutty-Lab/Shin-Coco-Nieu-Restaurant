@@ -5,7 +5,6 @@
 
 import type { WeekdayKey } from "./lib/demand";
 import type { DateOverride, DayWindow, WorkHoursConfig } from "./lib/workHours";
-import type { SavedPlan } from "./lib/savedPlans";
 
 /**
  * Anstellungsart. MINIJOB ist arbeitsrechtlich eine Form der Teilzeit und wird
@@ -132,6 +131,21 @@ export type Schedule = {
    * bewusst hingenommen (Popup nach „Tạo lịch"). Ein neuer Plan setzt es zurück.
    */
   underQuotaAccepted?: boolean;
-  /** Gesicherte frühere Stände des Plans, jüngster zuerst (lib/savedPlans.ts). */
-  savedPlans?: SavedPlan[];
+  /**
+   * Gespeicherte Pläne ANDERER Monate, Schlüssel "yyyy-MM" (lib/monthArchive.ts).
+   * Beim Monatswechsel wird der aktuelle Plan hier abgelegt und der des
+   * Zielmonats (falls vorhanden) wieder geladen – kein Monat geht verloren.
+   */
+  archive?: Record<string, MonthArchive>;
+};
+
+/** Ein gespeicherter Monatsplan (mit Sperre und „Bỏ qua cảnh báo" dieses Monats). */
+export type MonthArchive = {
+  shifts: Shift[];
+  originalShifts: Shift[];
+  /** Zeitpunkt des Ablegens (ISO). */
+  savedAt: string;
+  lockedAt?: string;
+  printedWeeks?: string[];
+  underQuotaAccepted?: boolean;
 };

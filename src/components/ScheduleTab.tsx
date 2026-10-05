@@ -12,6 +12,7 @@ import { signedHours } from "../lib/dateFormat";
 import { isDayClosed } from "../lib/workHours";
 import { publicHolidays } from "../lib/holidays";
 import { ShiftCellEditor } from "./ShiftCellEditor";
+import { SavedSchedulesButton } from "./SavedSchedules";
 import { ScheduleDayView } from "./ScheduleDayView";
 import { weeksOfMonth } from "../lib/weeks";
 import { employmentShortVi } from "../lib/employment";
@@ -30,7 +31,14 @@ function cellClass(shift: Shift | undefined): string {
   return `${base} ${!shift.generated ? "shift-custom" : ""}`;
 }
 
-export function ScheduleTab({ store }: { store: UseScheduleReturn }) {
+export function ScheduleTab({
+  store,
+  openMonth,
+}: {
+  store: UseScheduleReturn;
+  /** Gespeicherten Monat öffnen – für ALLE Läden (App.setPeriod). */
+  openMonth?: (year: number, month: number) => void;
+}) {
   // Drucken (Monat/Woche) und Entsperren liegen im Tab „Bảng chấm công" –
   // dort sitzt alles, was Papier erzeugt.
   // Nút „Tạo lịch làm việc" và popup nằm trên thanh tab (App.tsx).
@@ -193,6 +201,7 @@ export function ScheduleTab({ store }: { store: UseScheduleReturn }) {
               </button>
             </div>
           )}
+          {openMonth && <SavedSchedulesButton store={store} openMonth={openMonth} />}
         </div>
       )}
 

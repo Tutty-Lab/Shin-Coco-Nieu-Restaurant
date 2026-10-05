@@ -436,12 +436,15 @@ function MainApp({ onLogout }: { onLogout: () => void }) {
               „Bảng chấm công" chứa vùng in và không nằm trong khối no-print.
               „Lịch làm việc" cũng nằm ngoài vì tự mang no-print riêng.
             */}
-            {tab === "dienstplan" && <ScheduleTab key={view.storeId} store={view} />}
+            {tab === "dienstplan" && (
+              <ScheduleTab key={view.storeId} store={view} openMonth={(year, month) => setPeriod({ year, month })} />
+            )}
             {/* Nur der gewählte Laden – die PDF ist damit eine Datei je Laden. */}
             {tab === "stundenzettel" && <StundenzettelTab
                 key={view.storeId}
                 stores={[view]}
                 regenerate={() => generateAll({ year: primary.schedule.year, month: primary.schedule.month })}
+                openMonth={(year, month) => setPeriod({ year, month })}
               />}
           </>
         )}

@@ -3,7 +3,7 @@ import type { UseScheduleReturn } from "../hooks/useSchedule";
 import type { Employee } from "../types";
 import { StundenzettelPage } from "./StundenzettelPage";
 import { FitToWidth } from "./FitToWidth";
-import { SavedPlans } from "./SavedPlans";
+import { SavedSchedulesButton } from "./SavedSchedules";
 import type { SchedulePrintLayout } from "./SchedulePrintPage";
 import {
   buildDienstplanPdfFor,
@@ -30,6 +30,7 @@ type ScheduleRange = {
 export function StundenzettelTab({
   stores,
   regenerate,
+  openMonth,
 }: {
   stores: UseScheduleReturn[];
   /**
@@ -37,6 +38,8 @@ export function StundenzettelTab({
    * zwei Läden nicht gegen den anderen Laden geprüft.
    */
   regenerate?: () => void;
+  /** Gespeicherten Monat öffnen – für ALLE Läden (App.setPeriod). */
+  openMonth?: (year: number, month: number) => void;
 }) {
   // Alle Filialen laufen im selben Monat (der Kopf steuert alle). Monat und
   // Wochen kommen deshalb aus der ersten Filiale; ausgegeben wird je Quán eine
@@ -423,6 +426,7 @@ export function StundenzettelTab({
               >
                 Tạo lại lịch
               </button>
+              {openMonth && stores.length === 1 && <SavedSchedulesButton store={stores[0]} openMonth={openMonth} />}
               {pdfBusy && (
                 <span className="text-sm text-slate-500">
                   {pdfProgress ? `Đang xử lý trang ${pdfProgress}…` : "Đang tạo PDF…"}
@@ -549,9 +553,6 @@ export function StundenzettelTab({
             </div>
           )}
         </div>
-
-        {/* Bản đã lưu của quán đang xem (tự lưu trước mỗi lần Tạo lịch). */}
-        {stores.length === 1 && <SavedPlans store={stores[0]} />}
 
         {/* Xem trước trên màn hình cho nhân viên đã chọn */}
         {previewEmployee && (

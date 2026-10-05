@@ -25,7 +25,7 @@ import { datesOfMonth } from "../lib/demand";
 import { publicHolidays } from "../lib/holidays";
 import { initialScheduleFor, storeById, withSharedPersonDefaults, type StoreConfig } from "../lib/stores";
 import { applyMigrations } from "../lib/migrations";
-import { restoreSavedPlan, withSavedPlan, withoutSavedPlan } from "../lib/savedPlans";
+import { archiveFromLegacySavedPlans, listSavedMonths, mergeArchives, switchMonth } from "../lib/monthArchive";
 import { isEmployedOn } from "../lib/availability";
 import { contractOpenDays } from "../lib/contract";
 import { weekStartOf } from "../lib/weeks";
@@ -77,7 +77,11 @@ function normalizeSchedule(raw: Schedule | undefined, store: StoreConfig): Sched
     shifts: raw.shifts ?? [],
     lockedAt: raw.lockedAt,
     underQuotaAccepted: raw.underQuotaAccepted === true ? true : undefined,
-    savedPlans: Array.isArray(raw.savedPlans) ? raw.savedPlans : [],
+    // Archiv der anderen Monate; „Bản đã lưu" der Vorversion wird übernommen.
+    archive: archiveFromLegacySavedPlans({
+      ...raw,
+      archive: raw.archive && typeof raw.archive === "object" ? raw.archive : {},
+    }).archive,
     printedWeeks: Array.isArray(raw.printedWeeks) ? raw.printedWeeks : [],
     migrations: Array.isArray(raw.migrations) ? raw.migrations : [],
   });
@@ -121,9 +125,19 @@ export function useSchedule(storeId: string) {
 
   // Immer sofort lokal sichern – das ist der Offline-Puffer. storeId wechselt im
   // SELBEN Update wie der Stand (setStoreId), daher passt beides zusammen.
+  // Vorher gespeicherte Monate aus dem LocalStorage übernehmen (anderer Tab),
+  // damit ein veralteter Tab nie einen gespeicherten Monat löscht.
   useEffect(() => {
+    const merged = mergeArchives(schedule, loadState(storeId)?.schedule);
+    if (merged !== schedule) {
+      setSchedule(merged); // speichert im nächsten Durchlauf
+      return;
+    }
     saveState(storeId, { schedule, originalShifts, passwordHash });
   }, [storeId, schedule, originalShifts, passwordHash]);
+
+  // Nach „Xoá dữ liệu" darf das Zusammenführen die alten Monate nicht zurückholen.
+  const skipArchiveMerge = useRef(false);
 
   // Letzter Stand für Zugriffe außerhalb des Renders (siehe Erst-Upload).
   const latest = useRef<PersistedState>({ schedule, originalShifts, passwordHash });
@@ -171,7 +185,15 @@ export function useSchedule(storeId: string) {
     if (!isRemoteConfigured || !hydrated.current) return;
     const timer = window.setTimeout(() => {
       setRemoteStatus("saving");
-      saveRemote(storeId, { schedule, originalShifts, passwordHash })
+      (async () => {
+        // Gespeicherte Monate anderer Geräte behalten (Archiv zusammenführen).
+        const skip = skipArchiveMerge.current;
+        skipArchiveMerge.current = false;
+        const remote = skip ? null : await loadRemote(storeId).catch(() => null);
+        const merged = mergeArchives(schedule, remote?.schedule);
+        await saveRemote(storeId, { schedule: merged, originalShifts, passwordHash });
+        if (merged !== schedule) setSchedule((cur) => mergeArchives(cur, remote?.schedule));
+      })()
         .then(() => setRemoteStatus("idle"))
         .catch(() => setRemoteStatus("error"));
     }, 1000);
@@ -246,18 +268,25 @@ export function useSchedule(storeId: string) {
 
   // ----- Firma / Monat / Öffnungszeiten -----
   const updateMeta = useCallback((patch: Partial<Schedule>) => {
-    setSchedule((s) => {
-      // Ein Monatswechsel beginnt einen neuen Plan: die Sperre des alten
-      // Monats darf nicht mitwandern.
-      const monthChanged =
-        (patch.year !== undefined && patch.year !== s.year) ||
-        (patch.month !== undefined && patch.month !== s.month);
-      if (monthChanged) {
-        return { ...s, ...patch, lockedAt: undefined, printedWeeks: [], underQuotaAccepted: undefined };
-      }
-      return { ...s, ...patch };
-    });
+    const { schedule: s, originalShifts: original } = latest.current;
+    const nextYear = patch.year ?? s.year;
+    const nextMonth = patch.month ?? s.month;
+    if (nextYear === s.year && nextMonth === s.month) {
+      setSchedule((cur) => ({ ...cur, ...patch }));
+      return;
+    }
+    // Monatswechsel: aktuellen Plan ablegen, gespeicherten Plan des Zielmonats
+    // laden (mit seiner Sperre und „Bỏ qua cảnh báo").
+    const next = switchMonth(s, original, nextYear, nextMonth);
+    const schedulePatched = { ...next.schedule, ...patch };
+    latest.current = { ...latest.current, schedule: schedulePatched, originalShifts: next.originalShifts };
+    setSchedule(schedulePatched);
+    setOriginalShifts(next.originalShifts);
+    setGenError(null);
   }, []);
+
+  /** Alle Monate mit gespeichertem Plan (inkl. des aktuell geöffneten). */
+  const savedMonths = useMemo(() => listSavedMonths(schedule), [schedule]);
 
   /** Sofort speichern, ohne die Entprell-Zeit abzuwarten (Sperren, Passwort). */
   const pushNow = useCallback(async (state: PersistedState) => {
@@ -291,17 +320,6 @@ export function useSchedule(storeId: string) {
   );
 
   /** Merkt eine ausgegebene Woche und sperrt den Monat beim ersten Mal. */
-  // ----- Gespeicherte Stände -----
-  const savePlan = useCallback(() => setSchedule((s) => withSavedPlan(s, "manual")), []);
-  const restorePlan = useCallback((id: string) => {
-    setSchedule((s) => {
-      const next = restoreSavedPlan(s, id);
-      setOriginalShifts(next.shifts.map((sh) => ({ ...sh })));
-      return next;
-    });
-  }, []);
-  const deletePlan = useCallback((id: string) => setSchedule((s) => withoutSavedPlan(s, id)), []);
-
   const markWeekPrinted = useCallback(
     (weekStart: string) => {
       const current = latest.current;
@@ -396,12 +414,17 @@ export function useSchedule(storeId: string) {
         storeTag: storeConfig.id,
         seed: `${year}-${month}-${Date.now()}-${genNonce.current++}`,
       });
-      // Neuer Plan: ein früheres „Bỏ qua cảnh báo" gilt nicht mehr.
-      // Den bisherigen Plan vorher sichern – auch den des Vormonats.
-      setSchedule((s) => ({
-        ...withSavedPlan(s, "auto"),
-        year, month, shifts, lockedAt: undefined, printedWeeks: [], underQuotaAccepted: undefined,
-      }));
+      // Anderer Monat als der offene: den offenen Plan erst ins Archiv legen,
+      // sonst ginge er verloren. Derselbe Monat wird bewusst neu erzeugt.
+      // Neuer Plan: Sperre und „Bỏ qua cảnh báo" gelten nicht mehr.
+      const cur = latest.current;
+      const base =
+        year === cur.schedule.year && month === cur.schedule.month
+          ? cur.schedule
+          : switchMonth(cur.schedule, cur.originalShifts, year, month).schedule;
+      const next = { ...base, year, month, shifts, lockedAt: undefined, printedWeeks: [], underQuotaAccepted: undefined };
+      latest.current = { ...cur, schedule: next, originalShifts: shifts };
+      setSchedule(next);
       setOriginalShifts(shifts.map((sh) => ({ ...sh })));
       setGenStamp((n) => n + 1);
       return shifts;
@@ -426,6 +449,7 @@ export function useSchedule(storeId: string) {
   }, [originalShifts]);
 
   const resetAll = useCallback(() => {
+    skipArchiveMerge.current = true;
     clearState(storeId);
     setSchedule(emptySchedule(storeById(storeId)));
     setOriginalShifts([]);
@@ -537,9 +561,7 @@ export function useSchedule(storeId: string) {
     openDates,
     isLocked,
     markWeekPrinted,
-    savePlan,
-    restorePlan,
-    deletePlan,
+    savedMonths,
     unlockMonth,
     genError,
     genStamp,
