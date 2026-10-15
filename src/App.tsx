@@ -74,6 +74,18 @@ function MainApp() {
 
   const [tab, setTab] = useState<TabId>("dienstplan");
   const [menuOpen, setMenuOpen] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
+  const refreshApp = async () => {
+    setRefreshing(true);
+    try {
+      const reg = await navigator.serviceWorker?.getRegistration();
+      // Höchstens 3 s auf die Update-Prüfung warten (schlechtes Netz).
+      await Promise.race([reg?.update(), new Promise((resolve) => setTimeout(resolve, 3000))]);
+    } catch {
+      // egal – trotzdem neu laden
+    }
+    window.location.reload();
+  };
   /** Popup aus ☰ Menu: „Lịch đã lưu" oder „Luật xếp lịch". */
   const [popup, setPopup] = useState<"saved" | "rules" | null>(null);
   /** Trang Tài liệu mở riêng; đóng lại thì về đúng tab đang làm. */
@@ -163,17 +175,17 @@ function MainApp() {
       {/* iPhone-App vom Home-Bildschirm (black-translucent): Inhalt unter die Statusleiste schieben. */}
       <header className="no-print bg-slate-900 text-white shadow sticky top-0 z-30 pt-[env(safe-area-inset-top)]">
         <div className="mx-auto max-w-[1500px] px-3 sm:px-4 py-3 flex items-center justify-between gap-3">
-          <div>
+          <div className="min-w-0">
             {/* Nur der Titel – Version und Unterzeile weggelassen (Wunsch: aufgeräumt).
                 Nur ein SYNC-FEHLER wird gezeigt: dann liegen Daten nur auf diesem Gerät. */}
-            <h1 className="text-base sm:text-lg font-semibold" title={`bản ${__BUILD__}`}>
+            <h1 className="truncate text-base sm:text-lg font-semibold" title={`bản ${__BUILD__}`}>
               Lịch làm việc &amp; Bảng chấm công
             </h1>
             {stores.some((s) => s.remoteStatus === "error") && (
               <p className="text-xs text-rose-300">Lỗi đồng bộ — dữ liệu chỉ lưu trên máy này</p>
             )}
           </div>
-          <div className="flex flex-wrap items-center gap-2">
+          <div className="flex shrink-0 items-center gap-2">
             {/* Aus dem Menü geöffnete Seite: steht direkt neben dem Menü, mit ✕ zurück. */}
             {(docsOpen || !MAIN_TABS.includes(tab)) && (
               <span className="inline-flex items-center gap-1 rounded-md bg-white py-1.5 pl-3 pr-1 text-sm font-medium text-slate-900">
@@ -188,6 +200,21 @@ function MainApp() {
                 </button>
               </span>
             )}
+            {/*
+              Tải lại: als App vom Home-Bildschirm (iPhone/Safari) gibt es keine
+              Browserleiste zum Neuladen. Erst nach einer neuen Version fragen
+              (Service Worker), dann neu laden – so kommen Code UND Daten frisch.
+            */}
+            <button
+              type="button"
+              onClick={() => void refreshApp()}
+              disabled={refreshing}
+              aria-label="Tải lại"
+              title="Tải lại"
+              className="flex h-9 w-9 items-center justify-center rounded bg-slate-700 text-lg leading-none hover:bg-slate-600 disabled:opacity-60"
+            >
+              <span className={refreshing ? "inline-block animate-spin" : "inline-block"}>↻</span>
+            </button>
             {/* Menu: alles, was nicht täglich gebraucht wird. */}
             <div className="relative">
               <button
