@@ -1,45 +1,45 @@
 import { useEffect, useState } from "react";
 import { useSchedule } from "./hooks/useSchedule";
-import { GenerateScheduleDialog } from "./components/GenerateScheduleDialog";
 import { SettingsTab } from "./components/SettingsTab";
 import { EmployeesTab } from "./components/EmployeesTab";
 import { ScheduleTab } from "./components/ScheduleTab";
-import { StundenzettelTab } from "./components/StundenzettelTab";
 import { DocsTab } from "./components/DocsTab";
+import { GenerateScheduleDialog } from "./components/GenerateScheduleDialog";
+import { SavedSchedulesPanel } from "./components/SavedSchedules";
+import { RulesPanel } from "./components/Dashboard";
 import { Dashboard } from "./components/Dashboard";
 import { LockScreen } from "./components/LockScreen";
-import { isAuthenticated, logout } from "./lib/auth";
-import { MONTH_NAMES_VI } from "./lib/dateFormat";
-import { isScheduleYearAllowed, SCHEDULE_YEARS } from "./lib/years";
+import { isAuthenticated } from "./lib/auth";
 import { STORES } from "./lib/stores";
 import type { EmployeeChange } from "./lib/suggestions";
 
 /** Zuletzt angezeigter Laden (nur Ansicht, je Gerät). */
 const VIEW_KEY = "stundenzettel-app:view-store";
 
-type TabId = "einstellungen" | "mitarbeiter" | "dienstplan" | "stundenzettel";
+type TabId = "einstellungen" | "mitarbeiter" | "dienstplan" | "lich";
 
 /**
- * Alle Ansichten. Sichtbar als Tab sind die drei, mit denen täglich gearbeitet
+ * Alle Ansichten. Sichtbar als Tab sind die zwei, mit denen täglich gearbeitet
  * wird (MAIN_TABS); Cài đặt und Tài liệu stecken im Menü ☰ oben rechts – der
  * Bildschirm soll für den Chủ quán aufgeräumt sein.
  */
 const TABS: { id: TabId; label: string }[] = [
-  { id: "dienstplan", label: "Lịch làm việc" },
-  { id: "stundenzettel", label: "Bảng chấm công" },
+  // Bảng chấm công ist eine Ansicht („Chấm công") im Lịch-Tab, kein eigener Tab mehr.
+  { id: "dienstplan", label: "Chấm công" },
+  { id: "lich", label: "Lịch" },
   { id: "mitarbeiter", label: "Nhân viên" },
   { id: "einstellungen", label: "Cài đặt" },
 ];
-const MAIN_TABS: TabId[] = ["dienstplan", "stundenzettel", "mitarbeiter"];
+const MAIN_TABS: TabId[] = ["dienstplan", "lich", "mitarbeiter"];
 
 export default function App() {
   const [unlocked, setUnlocked] = useState(() => isAuthenticated());
 
   if (!unlocked) return <LockScreen onUnlock={() => setUnlocked(true)} />;
-  return <MainApp onLogout={() => setUnlocked(false)} />;
+  return <MainApp />;
 }
 
-function MainApp({ onLogout }: { onLogout: () => void }) {
+function MainApp() {
   // Alle Filialen laufen gleichzeitig – jede mit eigenem State, eigener
   // Persistenz und eigener Sync. ANGEZEIGT wird nur der Laden, der in der
   // Reihe unter den Tabs gewählt ist (drei Läden untereinander waren zu lang);
@@ -74,6 +74,8 @@ function MainApp({ onLogout }: { onLogout: () => void }) {
 
   const [tab, setTab] = useState<TabId>("dienstplan");
   const [menuOpen, setMenuOpen] = useState(false);
+  /** Popup aus ☰ Menu: „Lịch đã lưu" oder „Luật xếp lịch". */
+  const [popup, setPopup] = useState<"saved" | "rules" | null>(null);
   /** Trang Tài liệu mở riêng; đóng lại thì về đúng tab đang làm. */
   const [docsOpen, setDocsOpen] = useState(false);
 
@@ -124,14 +126,17 @@ function MainApp({ onLogout }: { onLogout: () => void }) {
     openTab("dienstplan");
   }, [regenPending]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // Popup „Tạo lịch" (Demo: nur Monat/Jahr, vorausgewählt der aktuelle Kalendermonat).
+  const [genDialogOpen, setGenDialogOpen] = useState(false);
+  /** Vorauswahl im Popup: der aktuelle Kalendermonat. */
+  const today = new Date();
+  const thisMonth = { year: today.getFullYear(), month: today.getMonth() + 1 };
+
   /** Monat/Jahr für ALLE Filialen setzen. */
   const setPeriod = (patch: { year?: number; month?: number }) => {
     for (const s of stores) s.updateMeta(patch);
   };
 
-  // „Tạo lịch làm việc" sitzt über den Tabs – erreichbar von jedem Tab aus. Popup
-  // statt window.confirm: eingebettete Browser (Messenger, Zalo) schlucken den.
-  const [genDialogOpen, setGenDialogOpen] = useState(false);
   // Kurze Erfolgsmeldung nach dem Erzeugen. genStamp steigt bei jedem
   // erfolgreichen Lauf; der Effekt liest DANACH die (frische) Prüfung beider
   // Filialen aus.
@@ -145,26 +150,10 @@ function MainApp({ onLogout }: { onLogout: () => void }) {
   const genStampSum = stores.reduce((sum, s) => sum + s.genStamp, 0);
   useEffect(() => {
     if (genStampSum === 0) return;
-    const allErrors = stores.flatMap((s) => s.validation.errors);
-    const fehler = allErrors.filter((e) => e.severity !== "warning").length;
-    const warn = allErrors.filter((e) => e.severity === "warning").length;
-    const underQuota = allErrors.filter((e) => e.rule === "contract-hours").length;
-    setToast(
-      fehler > 0
-        ? `Đã tạo lịch ${stores.length} quán — nhưng còn ${fehler} lỗi, xem chi tiết ở phần trạng thái.`
-        : warn > 0
-          ? `✓ Đã tạo lịch ${stores.length} quán (còn ${warn} cảnh báo${underQuota > 0 ? `, ${underQuota} người thiếu giờ` : ""} — bấm (i) để xem).`
-          : `✓ Đã tạo lịch mới cho cả ${stores.length} quán — hợp lệ, đúng giờ hợp đồng.`,
-    );
-    const offen = stores
-      .map((s) => ({
-        storeId: s.storeId,
-        name: s.storeConfig.shortName,
-        // Nur fehlende Vertragsstunden – Độ dài ca/Khung giờ stehen im Dashboard.
-        messages: s.validation.errors.filter((e) => e.rule === "contract-hours").map((e) => e.message),
-      }))
-      .filter((x) => x.messages.length > 0);
-    setQuotaPopup(offen.length > 0 ? offen : null);
+    const anyIssue = stores.some((s) => s.validation.errors.length > 0 || s.analysis.peakViolations.length > 0);
+    // Demo: chỉ báo khi lịch ổn. Có vấn đề thì đã có MỘT thanh cảnh báo (Dashboard)
+    // – không thêm toast hay popup „thiếu giờ" tự bật nữa.
+    setToast(anyIssue ? null : `✓ Đã tạo lịch mới — hợp lệ, đúng giờ hợp đồng.`);
     const t = window.setTimeout(() => setToast(null), 5000);
     return () => window.clearTimeout(t);
   }, [genStampSum]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -172,7 +161,7 @@ function MainApp({ onLogout }: { onLogout: () => void }) {
   return (
     <div className="min-h-screen">
       <header className="no-print bg-slate-900 text-white shadow sticky top-0 z-30">
-        <div className="mx-auto max-w-[1500px] px-3 sm:px-4 py-3 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+        <div className="mx-auto max-w-[1500px] px-3 sm:px-4 py-3 flex items-center justify-between gap-3">
           <div>
             {/* Nur der Titel – Version und Unterzeile weggelassen (Wunsch: aufgeräumt).
                 Nur ein SYNC-FEHLER wird gezeigt: dann liegen Daten nur auf diesem Gerät. */}
@@ -184,29 +173,6 @@ function MainApp({ onLogout }: { onLogout: () => void }) {
             )}
           </div>
           <div className="flex flex-wrap items-center gap-2">
-            {/* Tháng/năm dùng chung cho mọi quán – bản in phải cùng kỳ. Quán chọn ở hàng nhãn dưới các tab. */}
-            <div className="inline-flex items-center gap-1.5" aria-label="Chọn kỳ">
-              <select
-                aria-label="Tháng"
-                value={`${primary.schedule.year}-${primary.schedule.month}`}
-                onChange={(e) => {
-                  const [year, month] = e.target.value.split("-").map(Number);
-                  setPeriod({ year, month });
-                }}
-                className="rounded-md border border-slate-600 bg-white px-2 py-1.5 text-sm font-medium text-slate-900"
-              >
-                {(isScheduleYearAllowed(primary.schedule.year)
-                  ? SCHEDULE_YEARS
-                  : [primary.schedule.year, ...SCHEDULE_YEARS]
-                ).flatMap((y) =>
-                  MONTH_NAMES_VI.map((_, i) => (
-                    <option key={`${y}-${i + 1}`} value={`${y}-${i + 1}`} className="bg-white text-slate-900">
-                      {String(i + 1).padStart(2, "0")}/{y}
-                    </option>
-                  )),
-                )}
-              </select>
-            </div>
             {/* Aus dem Menü geöffnete Seite: steht direkt neben dem Menü, mit ✕ zurück. */}
             {(docsOpen || !MAIN_TABS.includes(tab)) && (
               <span className="inline-flex items-center gap-1 rounded-md bg-white py-1.5 pl-3 pr-1 text-sm font-medium text-slate-900">
@@ -221,14 +187,6 @@ function MainApp({ onLogout }: { onLogout: () => void }) {
                 </button>
               </span>
             )}
-            <button
-              type="button"
-              onClick={() => setGenDialogOpen(true)}
-              disabled={stores.every((s) => s.schedule.employees.length === 0)}
-              className="rounded bg-emerald-600 px-3 py-2 text-sm font-semibold text-white hover:bg-emerald-700 disabled:opacity-40"
-            >
-              Tạo lịch
-            </button>
             {/* Menu: alles, was nicht täglich gebraucht wird. */}
             <div className="relative">
               <button
@@ -250,6 +208,8 @@ function MainApp({ onLogout }: { onLogout: () => void }) {
                   >
                     {(
                       [
+                        [`Lịch đã lưu (${view.savedMonths.length})`, () => setPopup("saved")],
+                        ["Luật xếp lịch", () => setPopup("rules")],
                         ["Cài đặt", () => openTab("einstellungen")],
                         ["Tài liệu", () => setDocsOpen(true)],
                       ] as const
@@ -267,32 +227,6 @@ function MainApp({ onLogout }: { onLogout: () => void }) {
                         {label}
                       </button>
                     ))}
-                    <div className="my-1 border-t border-slate-100" />
-                    <button
-                      type="button"
-                      role="menuitem"
-                      onClick={() => {
-                        setMenuOpen(false);
-                        if (confirm(`Xoá toàn bộ dữ liệu của cả ${stores.length} quán?`)) {
-                          for (const s of stores) s.resetAll();
-                        }
-                      }}
-                      className="block w-full px-4 py-2 text-left text-rose-700 hover:bg-rose-50"
-                    >
-                      Xoá dữ liệu
-                    </button>
-                    <button
-                      type="button"
-                      role="menuitem"
-                      onClick={() => {
-                        setMenuOpen(false);
-                        logout();
-                        onLogout();
-                      }}
-                      className="block w-full px-4 py-2 text-left hover:bg-slate-50"
-                    >
-                      Đăng xuất
-                    </button>
                   </div>
                 </>
               )}
@@ -306,44 +240,51 @@ function MainApp({ onLogout }: { onLogout: () => void }) {
       </div>
 
       <nav className="no-print mx-auto max-w-[1500px] px-3 sm:px-4 mt-4">
-        <div className="flex flex-wrap gap-2">
-          {TABS.filter((t) => MAIN_TABS.includes(t.id)).map((t) => {
-            const active = !docsOpen && tab === t.id;
-            return (
-              <button
-                key={t.id}
-                onClick={() => openTab(t.id)}
-                aria-current={active ? "page" : undefined}
-                className={`px-3.5 py-2 text-sm font-medium rounded-full border ${
-                  active
-                    ? "bg-slate-900 text-white border-slate-900"
-                    : "bg-white text-slate-600 border-slate-200 hover:text-slate-900 hover:border-slate-300"
-                }`}
-              >
-                {t.label}
-              </button>
-            );
-          })}
+        <div className="flex items-center gap-2">
+          {/* Eine Zeile: Chấm công · Lịch · Nhân viên als Segment, rechts Tạo lịch. */}
+          <div className="inline-flex rounded-xl border border-slate-200 bg-white p-0.5">
+            {TABS.filter((t) => MAIN_TABS.includes(t.id)).map((t) => {
+              const active = !docsOpen && tab === t.id;
+              return (
+                <button
+                  key={t.id}
+                  onClick={() => openTab(t.id)}
+                  aria-current={active ? "page" : undefined}
+                  className={`whitespace-nowrap rounded-lg px-3 py-1.5 text-sm font-medium ${
+                    active ? "bg-slate-900 text-white" : "text-slate-600 hover:text-slate-900"
+                  }`}
+                >
+                  {t.label}
+                </button>
+              );
+            })}
+          </div>
+          {/* „Tạo lịch" – wichtigste Aktion, rechts in der Tab-Zeile. */}
+          <button
+            type="button"
+            onClick={() => setGenDialogOpen(true)}
+            disabled={stores.every((s) => s.schedule.employees.length === 0)}
+            className="ml-auto whitespace-nowrap rounded-xl bg-emerald-600 px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-emerald-700 active:bg-emerald-800 disabled:opacity-40"
+          >
+            Tạo lịch
+          </button>
         </div>
       </nav>
 
-      {/* Popup chọn tháng/năm – nhắc kiểm tra ngày lễ/giờ đặc biệt, cảnh báo thay lịch và mở khóa. */}
       {genDialogOpen && (
         <GenerateScheduleDialog
+          simple
+          initialTarget={thisMonth}
           currentYear={primary.schedule.year}
           currentMonth={primary.schedule.month}
           hasShifts={stores.some((s) => s.schedule.shifts.length > 0)}
           isLocked={stores.some((s) => s.isLocked)}
           dateOverrides={stores.flatMap((s) => s.schedule.dateOverrides)}
           onClose={() => setGenDialogOpen(false)}
-          onOpenSettings={() => {
-            setGenDialogOpen(false);
-            openTab("einstellungen");
-          }}
           onConfirm={(target) => {
             setGenDialogOpen(false);
             generateAll(target);
-            openTab("dienstplan");
+            if (tab !== "lich") openTab("dienstplan");
           }}
         />
       )}
@@ -446,23 +387,33 @@ function MainApp({ onLogout }: { onLogout: () => void }) {
               {tab === "einstellungen" && <SettingsTab key={view.storeId} store={view} />}
               {tab === "mitarbeiter" && <EmployeesTab key={view.storeId} store={view} allStores={stores} />}
             </div>
-            {/*
-              „Bảng chấm công" chứa vùng in và không nằm trong khối no-print.
-              „Lịch làm việc" cũng nằm ngoài vì tự mang no-print riêng.
-            */}
-            {tab === "dienstplan" && (
-              <ScheduleTab key={view.storeId} store={view} openMonth={(year, month) => setPeriod({ year, month })} />
+            {/* „Chấm công" tự mang no-print riêng (gồm cả phần chấm công/xuất PDF). */}
+            {(tab === "dienstplan" || tab === "lich") && (
+              <ScheduleTab key={view.storeId} store={view} mode={tab === "lich" ? "schedule" : "timesheet"} />
             )}
-            {/* Nur der gewählte Laden – die PDF ist damit eine Datei je Laden. */}
-            {tab === "stundenzettel" && <StundenzettelTab
-                key={view.storeId}
-                stores={[view]}
-                regenerate={() => generateAll({ year: primary.schedule.year, month: primary.schedule.month })}
-                openMonth={(year, month) => setPeriod({ year, month })}
-              />}
           </>
         )}
       </main>
+
+      {popup && (
+        // Klick auf den Hintergrund schliesst das Popup.
+        <div
+          className="no-print fixed inset-0 z-50 flex items-start justify-center bg-slate-900/40 px-4 pt-20"
+          onClick={() => setPopup(null)}
+        >
+          <div className="max-h-[75vh] w-full max-w-2xl overflow-auto rounded-lg shadow-xl" onClick={(e) => e.stopPropagation()}>
+            {popup === "saved" ? (
+              <SavedSchedulesPanel
+                store={view}
+                openMonth={(year, month) => setPeriod({ year, month })}
+                onClose={() => setPopup(null)}
+              />
+            ) : (
+              <RulesPanel onClose={() => setPopup(null)} />
+            )}
+          </div>
+        </div>
+      )}
     </div>
   );
 }

@@ -13,6 +13,9 @@ import type { DateOverride, DayWindow, WorkHoursConfig } from "./lib/workHours";
  */
 export type EmploymentType = "VOLLZEIT" | "TEILZEIT" | "MINIJOB";
 
+/** Bộ phận: Bồi (Service) oder Bếp (Küche). Nur Anzeige – der Planer nutzt es (noch) nicht. */
+export type Station = "SERVICE" | "KITCHEN";
+
 export type ShiftType = "EARLY" | "LATE" | "CUSTOM";
 
 /** „Khung giờ ưu tiên": an diesen Wochentagen möglichst in diesem Fenster arbeiten. */
@@ -26,6 +29,8 @@ export type Employee = {
   id: string;
   name: string;
   employmentType: EmploymentType;
+  /** Bồi oder Bếp. Fehlt = Bồi (ältere Daten). */
+  station?: Station;
   /**
    * Monatliches Soll in Minuten (Integer). 176 h => 10560.
    *

@@ -1,44 +1,12 @@
-import { useState } from "react";
 import type { UseScheduleReturn } from "../hooks/useSchedule";
 import { minutesToShortHours } from "../lib/time";
 
 /**
- * Nút „Lịch đã lưu (N)" + danh sách (theo Thienlong/Vietpho) – dùng ở Lịch làm
- * việc và Bảng chấm công. Mỗi tháng một lịch: đổi tháng thì lịch đang mở tự
- * cất vào kho, mở lại tháng thì lịch của tháng đó quay về.
- * `openMonth` chuyển CẢ BA quán sang tháng đó (tháng dùng chung).
+ * Danh sách „Lịch đã lưu" (theo Thienlong/Vietpho) – mở từ ☰ Menu. Mỗi tháng
+ * một lịch: đổi tháng thì lịch đang mở tự cất vào kho, mở lại tháng thì lịch
+ * của tháng đó quay về. `openMonth` chuyển mọi quán sang tháng đó (tháng dùng chung).
  */
-export function SavedSchedulesButton({
-  store,
-  openMonth,
-}: {
-  store: UseScheduleReturn;
-  openMonth: (year: number, month: number) => void;
-}) {
-  const [open, setOpen] = useState(false);
-  return (
-    <>
-      <button
-        type="button"
-        onClick={() => setOpen((v) => !v)}
-        className={`rounded border px-3 py-1.5 text-sm font-medium ${
-          open
-            ? "border-slate-900 bg-slate-100 text-slate-900"
-            : "border-slate-300 bg-white text-slate-700 hover:border-slate-500"
-        }`}
-      >
-        Lịch đã lưu ({store.savedMonths.length})
-      </button>
-      {open && (
-        <div className="basis-full">
-          <SavedSchedulesPanel store={store} openMonth={openMonth} onClose={() => setOpen(false)} />
-        </div>
-      )}
-    </>
-  );
-}
-
-function SavedSchedulesPanel({
+export function SavedSchedulesPanel({
   store,
   openMonth,
   onClose,

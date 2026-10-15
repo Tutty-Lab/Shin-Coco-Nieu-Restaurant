@@ -165,7 +165,7 @@ export function DocsTab({ stores }: { stores: StoreConfig[] }) {
         <p className="mt-2 text-sm text-slate-300">
           Cả {stores.length} quán dùng chung <b>giờ mở</b> và chung <b>luật giờ làm</b>. Khác nhau: ngày nào là
           ngày đông (mục 2) và số người mỗi khung (mục 3), vì quy mô và doanh thu khác nhau. Mọi tab đều hiện
-          tất cả các quán (không có nút chuyển quán); tháng/năm chọn chung ở thanh trên cùng, và Bảng chấm công
+          tất cả các quán (không có nút chuyển quán); tháng/năm chọn chung ở thanh trên cùng, và tab Chấm công
           xuất <b>một file PDF</b> gồm trang của mọi quán.
         </p>
         <p className="mt-2 text-sm text-slate-300">

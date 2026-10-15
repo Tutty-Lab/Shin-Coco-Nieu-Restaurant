@@ -20,6 +20,7 @@ const dayMonth = (isoDate: string) => `${isoDate.slice(8, 10)}.${isoDate.slice(5
  *
  * Ngày lễ và ngày đặc biệt (Cài đặt) quyết định giờ mở của từng ngày, nên popup
  * nhắc kiểm tra chúng TRƯỚC khi tạo và liệt kê những ngày đó của tháng đã chọn.
+ * `simple` (Demo): nur Monat/Jahr + Warnungen, ohne Ngày-lễ-Hinweis.
  */
 export function GenerateScheduleDialog({
   currentYear,
@@ -30,6 +31,8 @@ export function GenerateScheduleDialog({
   onConfirm,
   onOpenSettings,
   onClose,
+  initialTarget,
+  simple = false,
 }: {
   currentYear: number;
   currentMonth: number;
@@ -37,11 +40,14 @@ export function GenerateScheduleDialog({
   isLocked: boolean;
   dateOverrides: DateOverride[];
   onConfirm: (target: { year: number; month: number }) => void;
-  onOpenSettings: () => void;
+  onOpenSettings?: () => void;
   onClose: () => void;
+  /** Vorauswahl, falls nicht der geöffnete Monat (Demo: aktueller Kalendermonat). */
+  initialTarget?: { year: number; month: number };
+  simple?: boolean;
 }) {
-  const [year, setYear] = useState(() => clampScheduleYear(currentYear));
-  const [month, setMonth] = useState(currentMonth);
+  const [year, setYear] = useState(() => clampScheduleYear(initialTarget?.year ?? currentYear));
+  const [month, setMonth] = useState(initialTarget?.month ?? currentMonth);
   const monthSelect = useRef<HTMLSelectElement>(null);
 
   useEffect(() => {
@@ -62,7 +68,7 @@ export function GenerateScheduleDialog({
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/40 p-0 sm:p-4"
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"
       onClick={onClose}
       role="presentation"
     >
@@ -70,7 +76,7 @@ export function GenerateScheduleDialog({
         role="dialog"
         aria-modal="true"
         aria-labelledby="generate-dialog-title"
-        className="w-full sm:max-w-md rounded-t-2xl sm:rounded-lg border border-slate-200 bg-white shadow-xl"
+        className="w-full max-w-md rounded-lg border border-slate-200 bg-white shadow-xl"
         onClick={(event) => event.stopPropagation()}
       >
         <div className="flex items-center justify-between border-b border-slate-200 px-4 py-3">
@@ -105,9 +111,9 @@ export function GenerateScheduleDialog({
               </select>
             </label>
           </div>
-          <p className="text-xs text-slate-500">Chỉ tạo và in lịch cho các năm {SCHEDULE_YEAR_RANGE_LABEL}.</p>
+          {!simple && <p className="text-xs text-slate-500">Chỉ tạo và in lịch cho các năm {SCHEDULE_YEAR_RANGE_LABEL}.</p>}
 
-          <div className="rounded border border-sky-200 bg-sky-50 px-3 py-2 text-sm text-sky-900">
+          {!simple && <div className="rounded border border-sky-200 bg-sky-50 px-3 py-2 text-sm text-sky-900">
             <p className="font-medium">
               Nếu tháng này có ngày nghỉ lễ hay giờ mở cửa đặc biệt, hãy chỉnh lại ở mục Cài đặt trước khi tạo lịch!
             </p>
@@ -130,7 +136,7 @@ export function GenerateScheduleDialog({
             >
               Mở Cài đặt
             </button>
-          </div>
+          </div>}
 
           {isLocked && (
             <div className="rounded border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-900">
@@ -140,8 +146,8 @@ export function GenerateScheduleDialog({
           )}
           {hasShifts && !sameMonth && (
             <div className="rounded border border-sky-200 bg-sky-50 px-3 py-2 text-sm text-sky-900">
-              Lịch <b>{current}</b> <b>không bị xoá</b>: app cất vào <b>Lịch đã lưu</b>. Muốn xem lại, chọn{" "}
-              <b>{current}</b> ở ô tháng trên cùng.
+              Lịch <b>{current}</b> <b>không bị xoá</b>: app cất vào <b>Lịch đã lưu</b>. Muốn xem lại, mở{" "}
+              <b>☰ Menu → Lịch đã lưu</b>.
             </div>
           )}
           {hasShifts && sameMonth && !isLocked && (
@@ -164,7 +170,7 @@ export function GenerateScheduleDialog({
             onClick={() => onConfirm({ year, month })}
             className="rounded bg-slate-900 px-4 py-2 text-sm font-medium text-white hover:bg-slate-700 active:bg-slate-800"
           >
-            Tạo lịch {target}
+            {simple ? "Tạo lịch" : `Tạo lịch ${target}`}
           </button>
         </div>
       </div>

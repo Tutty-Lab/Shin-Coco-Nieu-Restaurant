@@ -25,6 +25,9 @@ const IN_APP_BROWSERS: readonly [RegExp, string][] = [
   [/TikTok|musical_ly|BytedanceWebview/i, "TikTok"],
 ];
 
+/** Tên hiển thị khi biết là WebView nhúng nhưng không biết của app nào. */
+export const GENERIC_IN_APP_NAME = "trình duyệt của app";
+
 export function detectInAppBrowser(userAgent: string): InAppBrowserInfo {
   const platform = /Android/i.test(userAgent)
     ? "android"
@@ -32,7 +35,16 @@ export function detectInAppBrowser(userAgent: string): InAppBrowserInfo {
       ? "ios"
       : "other";
   const hit = IN_APP_BROWSERS.find(([pattern]) => pattern.test(userAgent));
-  return { inApp: Boolean(hit), name: hit?.[1] ?? null, platform };
+  if (hit) return { inApp: true, name: hit[1], platform };
+  // Không có tên app trong UA (vd. Messenger đổi UA) – vẫn nhận ra WebView:
+  // Android WebView có "; wv)", WKWebView trên iOS thiếu "Safari/" (Safari,
+  // Chrome/Firefox iOS và SFSafariViewController đều có). Nhận nhầm thì không
+  // sao: người dùng chỉ bấm thêm một nút Lưu / Chia sẻ, còn bỏ sót thì trình
+  // duyệt mở file PDF ra thành một màn hình toàn ký tự lạ.
+  const genericWebView =
+    (platform === "android" && /;\s*wv\)/.test(userAgent)) ||
+    (platform === "ios" && !/Safari\//.test(userAgent));
+  return { inApp: genericWebView, name: genericWebView ? GENERIC_IN_APP_NAME : null, platform };
 }
 
 /**

@@ -1,9 +1,8 @@
-import { useMemo, useState } from "react";
+import { useMemo, useState, type ReactNode } from "react";
 import type { UseScheduleReturn } from "../hooks/useSchedule";
 import type { Employee } from "../types";
 import { StundenzettelPage } from "./StundenzettelPage";
 import { FitToWidth } from "./FitToWidth";
-import { SavedSchedulesButton } from "./SavedSchedules";
 import type { SchedulePrintLayout } from "./SchedulePrintPage";
 import {
   buildDienstplanPdfFor,
@@ -27,19 +26,25 @@ type ScheduleRange = {
   weekStart?: string;
 };
 
+/**
+ * Leiste „Chấm công / Lịch làm việc" im Tab „Chấm công": links die
+ * Umschaltung (vom ScheduleTab), rechts die Bedienung der gewählten Ansicht und
+ * EIN Knopf „Xuất PDF" – er gibt genau das aus, was gerade angezeigt wird
+ * (Stundenzettel bzw. Dienstplan), immer für den ganzen Quán und Monat.
+ * In der Ansicht Chấm công folgt darunter die Vorschau einer Person.
+ */
 export function StundenzettelTab({
   stores,
-  regenerate,
-  openMonth,
+  mode,
+  toolbarLeft,
+  toolbarRight,
 }: {
   stores: UseScheduleReturn[];
-  /**
-   * Alle Läden zusammen neu planen (App.generateAll) – sonst würden Leute in
-   * zwei Läden nicht gegen den anderen Laden geprüft.
-   */
-  regenerate?: () => void;
-  /** Gespeicherten Monat öffnen – für ALLE Läden (App.setPeriod). */
-  openMonth?: (year: number, month: number) => void;
+  mode: "timesheet" | "schedule";
+  /** Umschalter Chấm công / Lịch làm việc. */
+  toolbarLeft?: ReactNode;
+  /** Zusätzliche Bedienung rechts in der Lịch-Ansicht (Tháng/Tuần/Ngày). */
+  toolbarRight?: ReactNode;
 }) {
   // Alle Filialen laufen im selben Monat (der Kopf steuert alle). Monat und
   // Wochen kommen deshalb aus der ersten Filiale; ausgegeben wird je Quán eine
@@ -50,10 +55,6 @@ export function StundenzettelTab({
   const unlockMonth = () => {
     for (const s of stores) if (s.isLocked) s.unlockMonth();
   };
-  const generate = () => {
-    if (regenerate) regenerate();
-    else for (const s of stores) s.generate();
-  };
 
   // Trình duyệt nhúng (Zalo, Messenger, Facebook …) không lưu được file tải thẳng.
   const inApp = useMemo(
@@ -63,17 +64,15 @@ export function StundenzettelTab({
   const pageUrl = typeof window === "undefined" ? "" : window.location.href;
   const chromeUrl = inApp.platform === "android" ? chromeIntentUrl(pageUrl) : null;
 
-  // ── Auswahl: WER (ein ganzer Quán oder eine Person) und WAS ─────────────
-  // who: "store:<storeId>" = alle Leute DIESES Quán (eine Datei je Quán, auf
-  // Wunsch des Betriebs statt „Tất cả các quán"), sonst "<storeId>:<empId>".
-  // Reihenfolge der Quán-Knöpfe wie vom Betrieb genannt: Coco, Shin, Nieu 37.
+  // Ausgegeben wird immer der ganze Quán (eine Datei je Quán) – die Auswahl
+  // einzelner Personen und „Nội dung" wurde zugunsten zweier Knöpfe entfernt.
+  // Reihenfolge der Quán wie vom Betrieb genannt: Coco, Shin, Nieu 37.
   const STORE_ORDER = ["coco", "shin", "nieu"];
   const rank = (id: string) => (STORE_ORDER.includes(id) ? STORE_ORDER.indexOf(id) : STORE_ORDER.length);
   const storeChoices = [...stores].sort((a, b) => rank(a.storeId) - rank(b.storeId));
-  const [who, setWho] = useState<string>(`store:${storeChoices[0].storeId}`);
-  // what: "stundenzettel" (Monats-Stundenzettel) | "month" (Dienstplan Monat)
-  //       | ein weekStart (Dienstplan dieser Woche).
-  const [what, setWhat] = useState<string>("stundenzettel");
+  const who = `store:${storeChoices[0].storeId}`;
+  /** Nur für die Vorschau: welche Person gezeigt wird (leer = cả quán, alle untereinander). */
+  const [previewId, setPreviewId] = useState<string>("");
 
   const weeks = useMemo(
     () => weeksOfMonth(schedule.year, schedule.month),
@@ -117,9 +116,9 @@ export function StundenzettelTab({
 
   // Für die Vorschau und die Dateinamen: eine konkrete Person.
   const previewStore = stores.find((s) => s.storeId === whoStoreId) ?? primary;
-  const previewEmployee = wholeStore
-    ? previewStore.activeEmployees[0] ?? null
-    : previewStore.activeEmployees.find((e) => e.id === whoEmpId) ?? null;
+  const previewEmployee =
+    previewStore.activeEmployees.find((e) => e.id === (wholeStore ? previewId : whoEmpId)) ?? null;
+  const previewEmployees = previewEmployee ? [previewEmployee] : previewStore.activeEmployees;
   const whoTag = wholeStore ? "ca_quan" : safeFileName(previewEmployee?.name ?? who);
 
   const startPdf = () => {
@@ -305,31 +304,11 @@ export function StundenzettelTab({
     };
   }
 
-  // Wochen-Stundenzettel: nur die Tage dieser Woche, mit Wochentitel oben rechts.
-  function szWeekFor(weekStart: string): { dates: string[]; label: string } | null {
-    const w = weeks.find((x) => x.weekStart === weekStart);
-    if (!w) return null;
-    return { dates: w.dates, label: `Woche ${w.label}${schedule.year}` };
-  }
-
-  function onPdf() {
-    if (what === "stundenzettel") {
-      void doPdf(`Stundenzettel_${whoTag}_${monthTag}.pdf`);
-      return;
-    }
-    if (what.startsWith("sz-")) {
-      const weekStart = what.slice(3);
-      const sz = szWeekFor(weekStart);
-      if (sz) {
-        void doPdf(`Stundenzettel_${whoTag}_${monthTag}_tuan_${weekStart}.pdf`, sz);
-      }
-      return;
-    }
-    const range = scheduleRangeFor(what);
-    if (!range) return;
-    const suffix = what === "month" ? "thang" : `tuan_${what}`;
-    void doPdfSchedule(range, `Dienstplan_${whoTag}_${suffix}_${monthTag}.pdf`);
-  }
+  const onPdfStundenzettel = () => void doPdf(`Stundenzettel_${whoTag}_${monthTag}.pdf`);
+  const onPdfSchedule = () => {
+    const range = scheduleRangeFor("month");
+    if (range) void doPdfSchedule(range, `Dienstplan_${whoTag}_thang_${monthTag}.pdf`);
+  };
 
   // Vùng in KHÔNG được dọn theo sự kiện "afterprint": trên Android sự kiện đó
   // bắn ra ngay khi gọi window.print(), trước lúc trình duyệt dựng xong trang
@@ -345,231 +324,183 @@ export function StundenzettelTab({
   }
 
   const hasSchedule = stores.some((s) => s.schedule.shifts.length > 0);
+  const canExport = !pdfBusy && hasSchedule && isScheduleYearAllowed(schedule.year);
 
   return (
-    <>
-      {/* Điều khiển (không in) */}
-      <div className="no-print">
-        {/* ---- In & Xuất ---- */}
-        <div className="rounded-lg border border-slate-200 bg-white p-3 mb-4">
-          <div className="text-sm font-medium text-slate-700 mb-2">Xuất file PDF</div>
+    <div className="no-print">
+      {/* Eine Zeile: Ansicht links, Bedienung + Xuất PDF rechts. */}
+      <div className="mb-3 flex flex-wrap items-center gap-2">
+        {toolbarLeft}
+        {/* Mobile: eigene volle Zeile, Auswahl dehnt sich; ab sm rechts neben dem Umschalter. */}
+        <div className="flex w-full min-w-0 items-center gap-2 sm:ml-auto sm:w-auto">
+          {mode === "timesheet" ? (
+            <select
+              aria-label="Xem trước"
+              value={previewEmployee?.id ?? ""}
+              onChange={(e) => setPreviewId(e.target.value)}
+              className="min-w-0 flex-1 rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-sm text-slate-800 sm:flex-none"
+            >
+              <option value="">Cả quán ({previewStore.activeEmployees.length} người)</option>
+              {previewStore.activeEmployees.map((e) => (
+                <option key={e.id} value={e.id}>
+                  {e.name}
+                </option>
+              ))}
+            </select>
+          ) : (
+            toolbarRight
+          )}
+          <button
+            type="button"
+            disabled={!canExport}
+            onClick={mode === "timesheet" ? onPdfStundenzettel : onPdfSchedule}
+            title={
+              mode === "timesheet"
+                ? "Bảng chấm công của cả quán, cả tháng"
+                : "Lịch làm việc của cả quán, cả tháng"
+            }
+            className="ml-auto shrink-0 rounded-lg bg-slate-900 px-3.5 py-1.5 text-sm font-medium text-white hover:bg-slate-700 active:bg-slate-800 disabled:opacity-40"
+          >
+            {pdfBusy ? `Đang tạo PDF${pdfProgress ? ` (${pdfProgress})` : "…"}` : "Xuất PDF"}
+          </button>
+        </div>
+      </div>
 
-          {inApp.inApp && !readyPdf && (
-            <div className="mb-3 rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900">
-              <div className="font-semibold">
-                Bạn đang mở app trong {inApp.name}
+      {inApp.inApp && !readyPdf && (
+        <div className="mb-3 rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900">
+          <div className="font-semibold">
+            Bạn đang mở app trong {inApp.name}
+          </div>
+          <p className="mt-0.5 text-xs">
+            Trình duyệt trong {inApp.name} không tải được file PDF thẳng về máy. Bạn vẫn có thể tạo
+            PDF rồi bấm <b>Lưu / Chia sẻ PDF</b>; nếu máy không cho, hãy mở app bằng trình duyệt.
+          </p>
+          {openInBrowserHelp}
+        </div>
+      )}
+
+      {pdfError && (
+        <div role="alert" className="mb-3 flex items-start justify-between gap-3 rounded-lg border border-rose-300 bg-rose-50 p-3 text-sm text-rose-900">
+          <span>{pdfError}</span>
+          <button type="button" onClick={() => setPdfError(null)} className="text-rose-700 hover:text-rose-900" aria-label="Đóng">
+            ✕
+          </button>
+        </div>
+      )}
+
+      {readyPdf && (
+        <div role="status" className="mb-3 rounded-lg border border-emerald-300 bg-emerald-50 p-3 text-sm text-emerald-950">
+          <div className="flex items-start justify-between gap-3">
+            <div className="font-semibold">
+              {readyPdfs.length > 1 ? `${readyPdfs.length} file PDF đã sẵn sàng (mỗi quán một file)` : "PDF đã sẵn sàng"}
+            </div>
+            <button
+              type="button"
+              onClick={() => { setReadyPdfs([]); setShareNote(null); }}
+              className="text-emerald-800 hover:text-emerald-950"
+              aria-label="Đóng"
+            >
+              ✕
+            </button>
+          </div>
+          <div className="mt-2 space-y-2">
+            {readyPdfs.map((file) => (
+              <div key={file.filename} className="flex flex-wrap items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => void onSharePdf(file)}
+                  className="rounded bg-emerald-700 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-800"
+                >
+                  Lưu / Chia sẻ
+                </button>
+                <span className="text-xs break-all">{file.filename}</span>
               </div>
-              <p className="mt-0.5 text-xs">
-                Trình duyệt trong {inApp.name} không tải được file PDF thẳng về máy. Bạn vẫn có thể tạo
-                PDF rồi bấm <b>Lưu / Chia sẻ PDF</b>; nếu máy không cho, hãy mở app bằng trình duyệt.
-              </p>
+            ))}
+          </div>
+          <p className="mt-1 text-xs">
+            Trong bảng chia sẻ chọn <b>Lưu vào Tệp</b> (iPhone) hoặc gửi qua Zalo/Mail.
+          </p>
+          {shareNote && (
+            <div className="mt-2 rounded border border-amber-300 bg-amber-50 p-2 text-amber-900">
+              <div className="text-sm">{shareNote}</div>
               {openInBrowserHelp}
             </div>
           )}
+        </div>
+      )}
 
-          <div className="flex flex-wrap items-end gap-3">
-            {/* WER */}
-            <label className="flex w-full min-w-0 flex-col gap-1 sm:w-auto">
-              <span className="text-xs text-slate-500">Cho ai</span>
-              <select
-                className="w-full max-w-full rounded border border-slate-300 px-2 py-2 text-sm sm:w-auto sm:min-w-[10rem]"
-                value={who}
-                onChange={(e) => setWho(e.target.value)}
-              >
-                {storeChoices.map((s) => (
-                  <option key={`store:${s.storeId}`} value={`store:${s.storeId}`}>
-                    Quán {s.storeConfig.shortName} (cả quán)
-                  </option>
-                ))}
-                {storeChoices.flatMap((s) =>
-                  s.activeEmployees.map((e) => (
-                    <option key={`${s.storeId}:${e.id}`} value={`${s.storeId}:${e.id}`}>
-                      {s.storeConfig.shortName} · {e.name}
-                    </option>
-                  )),
-                )}
-              </select>
-            </label>
+      {!isScheduleYearAllowed(schedule.year) && (
+        <p role="alert" className="mb-3 text-sm text-rose-700">
+          Chỉ xuất lịch cho các năm {SCHEDULE_YEAR_RANGE_LABEL}. Hãy chọn năm trong khoảng này.
+        </p>
+      )}
 
-            {/* WAS */}
-            <label className="flex w-full min-w-0 flex-col gap-1 sm:w-auto">
-              <span className="text-xs text-slate-500">Nội dung</span>
-              <select
-                className="w-full max-w-full rounded border border-slate-300 px-2 py-2 text-sm sm:w-auto sm:min-w-[14rem]"
-                value={what}
-                onChange={(e) => setWhat(e.target.value)}
-              >
-                {/* Chỉ in cả tháng – bản theo tuần làm khách rối, đã bỏ. */}
-                <option value="stundenzettel">Bảng chấm công (Stundenzettel) — cả tháng</option>
-                <option value="month">Lịch làm việc — cả tháng</option>
-              </select>
-            </label>
-
-            {/* Hành động */}
-            <div className="flex flex-wrap items-center gap-2">
-              <button
-                disabled={pdfBusy || !hasSchedule || !isScheduleYearAllowed(schedule.year)}
-                onClick={onPdf}
-                className="rounded bg-slate-900 px-4 py-2 text-sm font-medium text-white hover:bg-slate-700 active:bg-slate-800 disabled:opacity-40 shadow-sm"
-              >
-                {pdfBusy ? `Đang tạo PDF ${pdfProgress ? `(${pdfProgress})` : "…"}` : "Xuất PDF"}
-              </button>
-              <button
-                type="button"
-                disabled={pdfBusy || stores.every((s) => s.activeEmployees.length === 0)}
-                onClick={() => {
-                  if (isLocked) unlockMonth();
-                  generate();
-                }}
-                className="rounded border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 active:bg-slate-100 shadow-sm"
-                title="Tạo lại lịch mới theo quy tắc ca liền Chủ nhật"
-              >
-                Tạo lại lịch
-              </button>
-              {openMonth && stores.length === 1 && <SavedSchedulesButton store={stores[0]} openMonth={openMonth} />}
-              {pdfBusy && (
-                <span className="text-sm text-slate-500">
-                  {pdfProgress ? `Đang xử lý trang ${pdfProgress}…` : "Đang tạo PDF…"}
-                </span>
-              )}
-            </div>
+      {isLocked && (
+        <div className="mb-3 rounded bg-amber-50 border border-amber-200 text-amber-900 text-sm px-3 py-2">
+          <div className="font-medium">
+            Lịch tháng này đã khóa vì đã in
+            {stores.map((s) => s.schedule.lockedAt).find(Boolean) &&
+              ` lúc ${new Date(stores.map((s) => s.schedule.lockedAt).find(Boolean) as string).toLocaleString("vi-VN")}`}
+            .
+          </div>
+          <div className="mt-0.5">
+            Không sửa được ca, không đổi nhân viên. Vẫn in được bình thường. Bấm Tạo lịch cũng
+            mở khóa.
           </div>
 
-          {pdfError && (
-            <div role="alert" className="mt-3 flex items-start justify-between gap-3 rounded-lg border border-rose-300 bg-rose-50 p-3 text-sm text-rose-900">
-              <span>{pdfError}</span>
-              <button type="button" onClick={() => setPdfError(null)} className="text-rose-700 hover:text-rose-900" aria-label="Đóng">
-                ✕
-              </button>
-            </div>
-          )}
-
-          {readyPdf && (
-            <div role="status" className="mt-3 rounded-lg border border-emerald-300 bg-emerald-50 p-3 text-sm text-emerald-950">
-              <div className="flex items-start justify-between gap-3">
-                <div>
-                  <div className="font-semibold">
-                    {readyPdfs.length > 1 ? `${readyPdfs.length} file PDF đã sẵn sàng (mỗi quán một file)` : "PDF đã sẵn sàng"}
-                  </div>
-                </div>
+          {/*
+            Bewusst KEIN window.confirm: In-App-Browser (Messenger,
+            Facebook) unterdrücken die native Rückfrage teilweise. Sie
+            liefert dann stillschweigend false, der Klick tut nichts, und
+            niemand erfährt warum. Die Rückfrage steht deshalb direkt hier.
+          */}
+          {!confirmUnlock ? (
+            <button
+              onClick={() => setConfirmUnlock(true)}
+              className="mt-2 rounded border border-amber-400 bg-white px-3 py-1 text-sm font-medium text-amber-900 hover:bg-amber-100"
+            >
+              Mở khóa
+            </button>
+          ) : (
+            <div className="mt-2 rounded border border-amber-300 bg-white px-3 py-2">
+              <div className="text-amber-900">
+                Mở khóa lịch tháng này? Bản đã in ở quán sẽ không còn khớp với hệ thống. Sau
+                khi sửa, hãy in lại tuần đó và thay bản cũ.
+              </div>
+              <div className="mt-2 flex gap-2">
                 <button
-                  type="button"
-                  onClick={() => { setReadyPdfs([]); setShareNote(null); }}
-                  className="text-emerald-800 hover:text-emerald-950"
-                  aria-label="Đóng"
+                  onClick={() => {
+                    unlockMonth();
+                    setConfirmUnlock(false);
+                  }}
+                  className="rounded bg-amber-600 px-3 py-1 text-sm font-medium text-white hover:bg-amber-700"
                 >
-                  ✕
+                  Xác nhận mở khóa
+                </button>
+                <button
+                  onClick={() => setConfirmUnlock(false)}
+                  className="rounded border border-slate-300 bg-white px-3 py-1 text-sm text-slate-600 hover:bg-slate-50"
+                >
+                  Huỷ
                 </button>
               </div>
-              <div className="mt-2 space-y-2">
-                {readyPdfs.map((file) => (
-                  <div key={file.filename} className="flex flex-wrap items-center gap-2">
-                    <button
-                      type="button"
-                      onClick={() => void onSharePdf(file)}
-                      className="rounded bg-emerald-700 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-800"
-                    >
-                      Lưu / Chia sẻ
-                    </button>
-                    <span className="text-xs break-all">{file.filename}</span>
-                  </div>
-                ))}
-              </div>
-              <p className="mt-1 text-xs">
-                Trong bảng chia sẻ chọn <b>Lưu vào Tệp</b> (iPhone) hoặc gửi qua Zalo/Mail.
-              </p>
-              {shareNote && (
-                <div className="mt-2 rounded border border-amber-300 bg-amber-50 p-2 text-amber-900">
-                  <div className="text-sm">{shareNote}</div>
-                  {openInBrowserHelp}
-                </div>
-              )}
-            </div>
-          )}
-
-          {!hasSchedule && (
-            <p className="mt-2 text-sm text-slate-400">
-              Chưa có lịch — bấm Tạo lịch.
-            </p>
-          )}
-          {!isScheduleYearAllowed(schedule.year) && (
-            <p role="alert" className="mt-2 text-sm text-rose-700">
-              Chỉ xuất lịch cho các năm {SCHEDULE_YEAR_RANGE_LABEL}. Hãy chọn năm trong khoảng này.
-            </p>
-          )}
-
-
-          {isLocked && (
-            <div className="mt-3 rounded bg-amber-50 border border-amber-200 text-amber-900 text-sm px-3 py-2">
-              <div className="font-medium">
-                Lịch tháng này đã khóa vì đã in
-                {stores.map((s) => s.schedule.lockedAt).find(Boolean) &&
-                  ` lúc ${new Date(stores.map((s) => s.schedule.lockedAt).find(Boolean) as string).toLocaleString("vi-VN")}`}
-                .
-              </div>
-              <div className="mt-0.5">
-                Không sửa được ca, không đổi nhân viên. Vẫn in được bình thường. Bấm Tạo lịch cũng
-                mở khóa.
-              </div>
-
-              {/*
-                Bewusst KEIN window.confirm: In-App-Browser (Messenger,
-                Facebook) unterdrücken die native Rückfrage teilweise. Sie
-                liefert dann stillschweigend false, der Klick tut nichts, und
-                niemand erfährt warum. Die Rückfrage steht deshalb direkt hier.
-              */}
-              {!confirmUnlock ? (
-                <button
-                  onClick={() => setConfirmUnlock(true)}
-                  className="mt-2 rounded border border-amber-400 bg-white px-3 py-1 text-sm font-medium text-amber-900 hover:bg-amber-100"
-                >
-                  Mở khóa
-                </button>
-              ) : (
-                <div className="mt-2 rounded border border-amber-300 bg-white px-3 py-2">
-                  <div className="text-amber-900">
-                    Mở khóa lịch tháng này? Bản đã in ở quán sẽ không còn khớp với hệ thống. Sau
-                    khi sửa, hãy in lại tuần đó và thay bản cũ.
-                  </div>
-                  <div className="mt-2 flex gap-2">
-                    <button
-                      onClick={() => {
-                        unlockMonth();
-                        setConfirmUnlock(false);
-                      }}
-                      className="rounded bg-amber-600 px-3 py-1 text-sm font-medium text-white hover:bg-amber-700"
-                    >
-                      Xác nhận mở khóa
-                    </button>
-                    <button
-                      onClick={() => setConfirmUnlock(false)}
-                      className="rounded border border-slate-300 bg-white px-3 py-1 text-sm text-slate-600 hover:bg-slate-50"
-                    >
-                      Huỷ
-                    </button>
-                  </div>
-                </div>
-              )}
             </div>
           )}
         </div>
+      )}
 
-        {/* Xem trước trên màn hình cho nhân viên đã chọn */}
-        {previewEmployee && (
-          <>
-            <div className="mb-1 text-xs text-slate-500">
-              Xem trước: <b>{previewEmployee.name}</b>
-            </div>
-            {/* Ganze A4-Seite sichtbar: auf die Breite verkleinert statt seitlich scrollen. */}
-            <div className="rounded-lg border border-slate-300 shadow-sm bg-white">
+      {/* Ganze A4-Seite sichtbar: auf die Breite verkleinert statt seitlich scrollen. */}
+      {mode === "timesheet" && (
+        <div className="space-y-4">
+          {previewEmployees.map((employee) => (
+            <div key={employee.id} className="rounded-lg border border-slate-300 shadow-sm bg-white">
               <FitToWidth>
-                <StundenzettelPage schedule={previewStore.schedule} employee={previewEmployee} />
+                <StundenzettelPage schedule={previewStore.schedule} employee={employee} />
               </FitToWidth>
             </div>
-          </>
-        )}
-      </div>
-
-    </>
+          ))}
+        </div>
+      )}
+    </div>
   );
 }

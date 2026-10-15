@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { chromeIntentUrl, detectInAppBrowser } from "../inAppBrowser";
+import { chromeIntentUrl, detectInAppBrowser, GENERIC_IN_APP_NAME } from "../inAppBrowser";
 
 const UA = {
   facebookAndroid:
@@ -29,7 +29,19 @@ describe("detectInAppBrowser", () => {
     expect(detectInAppBrowser(UA.instagramIos)).toEqual({ inApp: true, name: "Instagram", platform: "ios" });
   });
 
+  it("nhận ra WebView nhúng cả khi UA không có tên app (vd. Messenger đổi UA)", () => {
+    const androidWebView =
+      "Mozilla/5.0 (Linux; Android 14; Pixel 7 Build/UQ1A.240205.004; wv) AppleWebKit/537.36 (KHTML, like Gecko) Version/4.0 Chrome/121.0.6167.178 Mobile Safari/537.36";
+    const iosWebView =
+      "Mozilla/5.0 (iPhone; CPU iPhone OS 17_2 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/15E148";
+    expect(detectInAppBrowser(androidWebView)).toEqual({ inApp: true, name: GENERIC_IN_APP_NAME, platform: "android" });
+    expect(detectInAppBrowser(iosWebView)).toEqual({ inApp: true, name: GENERIC_IN_APP_NAME, platform: "ios" });
+  });
+
   it("không coi Chrome/Safari thật là trình duyệt nhúng (giữ tải thẳng)", () => {
+    const chromeIos =
+      "Mozilla/5.0 (iPhone; CPU iPhone OS 17_2 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) CriOS/121.0.6167.138 Mobile/15E148 Safari/604.1";
+    expect(detectInAppBrowser(chromeIos)).toEqual({ inApp: false, name: null, platform: "ios" });
     expect(detectInAppBrowser(UA.chromeAndroid)).toEqual({ inApp: false, name: null, platform: "android" });
     expect(detectInAppBrowser(UA.safariIphone)).toEqual({ inApp: false, name: null, platform: "ios" });
     expect(detectInAppBrowser(UA.chromeDesktop)).toEqual({ inApp: false, name: null, platform: "other" });

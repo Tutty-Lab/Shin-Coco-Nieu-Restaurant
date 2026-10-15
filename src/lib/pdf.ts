@@ -550,14 +550,18 @@ export async function buildStundenzettelPdfFor(
 // ── Datei ausliefern ─────────────────────────────────────────────────────────
 
 /**
- * PDF-Blob direkt als Datei herunterladen. MIME application/octet-stream +
- * .pdf-Name => auch iOS Safari / In-App-Browser speichern die Datei, statt sie
- * in einen neuen Tab zu öffnen und dort hängen zu bleiben.
+ * PDF-Blob direkt als Datei herunterladen (Attribut download).
+ *
+ * MIME bleibt application/pdf: Früher stand hier application/octet-stream –
+ * ein In-App-Browser, der „download" ignoriert (Messenger/Zalo-WebView),
+ * öffnete die Datei dann als TEXT, also eine Seite voller Zeichensalat. Mit
+ * application/pdf zeigt er im schlimmsten Fall das PDF an. Echte Browser
+ * (Chrome, Safari, Firefox) speichern wegen „download" trotzdem.
  */
 export function deliver(blob: Blob, filename: string): void {
   if (typeof document === "undefined") return;
-  const octet = new Blob([blob], { type: "application/octet-stream" });
-  const url = URL.createObjectURL(octet);
+  const pdf = blob.type === "application/pdf" ? blob : new Blob([blob], { type: "application/pdf" });
+  const url = URL.createObjectURL(pdf);
   const a = document.createElement("a");
   a.href = url;
   a.download = filename;

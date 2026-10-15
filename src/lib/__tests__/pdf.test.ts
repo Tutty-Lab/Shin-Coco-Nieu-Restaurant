@@ -26,7 +26,7 @@ describe("safeFileName", () => {
 });
 
 describe("deliver", () => {
-  it("tải file trực tiếp qua thẻ a với download attribute và MIME octet-stream", async () => {
+  it("tải file trực tiếp qua thẻ a với download attribute, MIME application/pdf (WebView không hiện ký tự lạ)", async () => {
     const { deliver } = await import("../pdf");
     const blob = new Blob(["%PDF-dummy"], { type: "application/pdf" });
     let createdUrl = "";
@@ -74,7 +74,7 @@ describe("deliver", () => {
     try {
       await deliver(blob, "Stundenzettel_Tuan.pdf");
 
-      expect(blobType).toBe("application/octet-stream");
+      expect(blobType).toBe("application/pdf");
       expect(clickedDownload).toBe("Stundenzettel_Tuan.pdf");
       expect(clickedRel).toBe("noopener");
     } finally {

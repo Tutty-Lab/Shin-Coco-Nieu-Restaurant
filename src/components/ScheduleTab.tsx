@@ -12,8 +12,8 @@ import { signedHours } from "../lib/dateFormat";
 import { isDayClosed } from "../lib/workHours";
 import { publicHolidays } from "../lib/holidays";
 import { ShiftCellEditor } from "./ShiftCellEditor";
-import { SavedSchedulesButton } from "./SavedSchedules";
 import { ScheduleDayView } from "./ScheduleDayView";
+import { StundenzettelTab } from "./StundenzettelTab";
 import { weeksOfMonth } from "../lib/weeks";
 import { employmentShortVi } from "../lib/employment";
 import { monthlyTargetMinutesFor, SCHEDULE_SLOT_MINUTES } from "../lib/contract";
@@ -35,14 +35,14 @@ function cellClass(shift: Shift | undefined): string {
 
 export function ScheduleTab({
   store,
-  openMonth,
+  mode,
 }: {
   store: UseScheduleReturn;
-  /** Gespeicherten Monat öffnen – für ALLE Läden (App.setPeriod). */
-  openMonth?: (year: number, month: number) => void;
+  /** Tab „Chấm công" (Stundenzettel + PDF) oder Tab „Lịch" – Tháng/Tuần/Ngày gilt nur für den Lịch. */
+  mode: "schedule" | "timesheet";
 }) {
-  // Drucken (Monat/Woche) und Entsperren liegen im Tab „Bảng chấm công" –
-  // dort sitzt alles, was Papier erzeugt.
+  // Drucken (Monat/Woche) und Entsperren liegen in der Ansicht „Chấm công"
+  // (StundenzettelTab) – dort sitzt alles, was Papier erzeugt.
   // Nút „Tạo lịch làm việc" và popup nằm trên thanh tab (App.tsx).
   const { schedule, validation, isLocked, openDates } = store;
   const [selected, setSelected] = useState<{ employeeId: string; date: string } | null>(null);
@@ -148,40 +148,16 @@ export function ScheduleTab({
           Druckbereich ganz unten übrig. */}
       <div className="no-print">
       {/*
-        Nur ein kurzer Hinweis - Drucken und Entsperren sitzen im Tab
-        "Bang cham cong". Ohne diesen Hinweis klickt man hier auf eine Zelle
-        und nichts passiert, ohne zu erfahren warum.
+        Eine Leiste (die Tabs Chấm công / Lịch sitzen in App.tsx): die
+        Bedienung der Ansicht (Lịch: Tháng/Tuần/Ngày, bei Tuần die Wochenwahl)
+        und „Xuất PDF". Sperr-Hinweis mit Mở khóa kommt ebenfalls von dort.
       */}
-      {isLocked && (
-        <div className="mb-3 rounded bg-amber-50 border border-amber-200 text-amber-900 text-sm px-3 py-2">
-          Lịch tháng này đã khóa vì đã in
-          {schedule.lockedAt && ` lúc ${new Date(schedule.lockedAt).toLocaleString("vi-VN")}`} — chỉ
-          xem, không sửa được. Mở khóa ở tab <b>Bảng chấm công</b>, hoặc bấm <b>Tạo lịch</b> để
-          tạo lại.
-        </div>
-      )}
-
-      {/* Chuyển chế độ xem: Tháng (mặc định) · Tuần · Ngày. Tuần chọn bằng một ô gọn. */}
       {hasEmployees && (
-        <div className="mb-3 flex flex-wrap items-center gap-2">
-          <div className="inline-flex rounded-lg border border-slate-200 bg-white p-0.5">
-            {(
-              [
-                ["grid", "Tháng"],
-                ["week", "Tuần"],
-                ["day", "Ngày"],
-              ] as const
-            ).map(([id, label]) => (
-              <button
-                key={id}
-                onClick={() => setView(id)}
-                aria-pressed={view === id}
-                className={`px-3 py-1.5 text-sm rounded-md ${view === id ? "bg-slate-900 text-white" : "text-slate-600"}`}
-              >
-                {label}
-              </button>
-            ))}
-          </div>
+        <StundenzettelTab
+          stores={[store]}
+          mode={mode}
+          toolbarRight={
+            <>
           {view === "week" && weeks.length > 0 && (
             <div className="inline-flex items-center rounded-lg border border-slate-200 bg-white">
               <button
@@ -216,14 +192,25 @@ export function ScheduleTab({
               </button>
             </div>
           )}
-          {openMonth && <SavedSchedulesButton store={store} openMonth={openMonth} />}
-        </div>
+            <select
+              aria-label="Xem theo"
+              value={view}
+              onChange={(e) => setView(e.target.value as typeof view)}
+              className="rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-sm text-slate-800"
+            >
+              <option value="grid">Tháng</option>
+              <option value="week">Tuần</option>
+              <option value="day">Ngày</option>
+            </select>
+            </>
+          }
+        />
       )}
 
-      {schedule.shifts.length > 0 && <StaffingReport analysis={store.analysis} />}
+      {mode === "schedule" && schedule.shifts.length > 0 && <StaffingReport analysis={store.analysis} />}
 
       {/* Lỗi kiểm tra */}
-      {!validation.valid && schedule.shifts.length > 0 && (
+      {mode === "schedule" && !validation.valid && schedule.shifts.length > 0 && (
         <div className="mb-3 rounded bg-rose-50 border border-rose-200 text-rose-700 text-sm px-3 py-2">
           <div className="font-medium mb-1">Lỗi kiểm tra ({validation.errors.length}):</div>
           <ul className="list-disc pl-5 space-y-0.5 max-h-40 overflow-auto">
@@ -235,7 +222,7 @@ export function ScheduleTab({
       )}
 
       {/* Chú thích (bảng tháng và bảng tuần dùng chung lưới) */}
-      {(view === "grid" || view === "week") && (
+      {mode === "schedule" && (view === "grid" || view === "week") && (
         <div className="flex flex-wrap gap-3 mb-2 text-xs text-slate-600">
           <span className="inline-flex items-center gap-1">
             <span className="inline-block h-3 w-3 rounded border shift-early" /> Ca sáng
@@ -256,7 +243,7 @@ export function ScheduleTab({
         <div className="rounded bg-white border border-slate-200 p-6 text-center text-slate-400">
           Vui lòng thêm nhân viên trước.
         </div>
-      ) : view === "day" ? (
+      ) : mode === "timesheet" ? null : view === "day" ? (
         <ScheduleDayView store={store} onEdit={(employeeId, date) => setSelected({ employeeId, date })} />
       ) : (
         <div className="overflow-x-auto rounded-lg border border-slate-200 bg-white -mx-3 sm:mx-0">
