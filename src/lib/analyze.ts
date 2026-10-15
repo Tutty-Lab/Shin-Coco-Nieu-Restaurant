@@ -148,7 +148,9 @@ export function analyzeSchedule(input: AnalyzeInput): ScheduleAnalysis {
           maxStaff,
           required: peak.minStaff,
           allowed: peak.maxStaff,
-          ok: minStaff >= peak.minStaff && maxStaff <= peak.maxStaff,
+          // Nur ZU WENIG Leute ist ein Problem. Zu viele heißt: gut besetzt –
+          // Wunsch des Betriebs, deshalb keine Warnung „quá đông" mehr.
+          ok: minStaff >= peak.minStaff,
           startMinutes: from,
           endMinutes: to,
         });

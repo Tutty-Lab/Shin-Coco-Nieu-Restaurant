@@ -129,10 +129,7 @@ export function issuesOf(store: TrialStore, shifts: Shift[]): { issues: Issue[];
           rule,
           hard: rule === "closing",
           date: day.date,
-          message:
-            peak.minStaff < peak.required
-              ? `${day.date.slice(8, 10)}.${day.date.slice(5, 7)} ${peak.label}: thiếu người (${peak.minStaff}/${peak.required}).`
-              : `${day.date.slice(8, 10)}.${day.date.slice(5, 7)} ${peak.label}: quá đông (${peak.maxStaff}, tối đa ${peak.allowed}).`,
+          message: `${day.date.slice(8, 10)}.${day.date.slice(5, 7)} ${peak.label}: thiếu người (${peak.minStaff}/${peak.required}).`,
         });
       }
     }

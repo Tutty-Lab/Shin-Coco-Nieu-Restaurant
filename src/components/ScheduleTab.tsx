@@ -502,22 +502,16 @@ function CoverageRow({
         const need = Math.max(...list.map((p) => p.required));
         const allowed = Math.min(...list.map((p) => p.allowed));
         const short = list.some((p) => p.minStaff < p.required);
-        const over = list.some((p) => p.maxStaff > p.allowed);
         return (
           <td
             key={d}
             className={`border-t border-l border-slate-200 px-1 py-1 text-center ${
-              short
-                ? "bg-rose-50 font-semibold text-rose-700 outline outline-2 -outline-offset-2 outline-rose-500"
-                : over
-                  ? "bg-amber-50 text-amber-800 outline outline-2 -outline-offset-2 outline-amber-400"
-                  : ""
+              short ? "bg-rose-50 font-semibold text-rose-700 outline outline-2 -outline-offset-2 outline-rose-500" : ""
             }`}
             title={`ít nhất ${min}, đông nhất ${max} · luật: ${need}${Number.isFinite(allowed) ? `–${allowed}` : "+"} người`}
           >
             {min === max ? min : `${min}–${max}`}
             {short && <span className="block text-[10px] leading-none">cần {need}</span>}
-            {!short && over && <span className="block text-[10px] leading-none">tối đa {allowed}</span>}
           </td>
         );
       })}
