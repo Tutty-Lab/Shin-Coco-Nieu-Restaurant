@@ -221,6 +221,14 @@ function MainApp({ onLogout }: { onLogout: () => void }) {
                 </button>
               </span>
             )}
+            <button
+              type="button"
+              onClick={() => setGenDialogOpen(true)}
+              disabled={stores.every((s) => s.schedule.employees.length === 0)}
+              className="rounded bg-emerald-600 px-3 py-2 text-sm font-semibold text-white hover:bg-emerald-700 disabled:opacity-40"
+            >
+              Tạo lịch
+            </button>
             {/* Menu: alles, was nicht täglich gebraucht wird. */}
             <div className="relative">
               <button
@@ -316,41 +324,8 @@ function MainApp({ onLogout }: { onLogout: () => void }) {
               </button>
             );
           })}
-          <button
-            type="button"
-            onClick={() => setGenDialogOpen(true)}
-            disabled={stores.every((s) => s.schedule.employees.length === 0)}
-            className="ml-auto rounded-lg border border-emerald-700 bg-emerald-600 px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-emerald-700 active:bg-emerald-800 disabled:opacity-40"
-          >
-            Tạo lịch
-          </button>
         </div>
       </nav>
-
-      {/* Quán đang xem – một hàng nhãn dùng chung cho mọi tab (thay ô chọn quán ở đầu trang). */}
-      {!docsOpen && (
-        <div className="no-print mx-auto max-w-[1500px] px-3 sm:px-4 mt-3">
-          <div role="tablist" aria-label="Quán" className="inline-flex rounded-lg border border-slate-200 bg-white p-1">
-            {stores.map((s) => {
-              const active = s.storeId === view.storeId;
-              return (
-                <button
-                  key={s.storeId}
-                  type="button"
-                  role="tab"
-                  aria-selected={active}
-                  onClick={() => chooseStore(s.storeId)}
-                  className={`rounded-md px-3 py-1.5 text-sm font-medium ${
-                    active ? "bg-slate-900 text-white" : "text-slate-600 hover:bg-slate-100 hover:text-slate-900"
-                  }`}
-                >
-                  {s.storeConfig.shortName}
-                </button>
-              );
-            })}
-          </div>
-        </div>
-      )}
 
       {/* Popup chọn tháng/năm – nhắc kiểm tra ngày lễ/giờ đặc biệt, cảnh báo thay lịch và mở khóa. */}
       {genDialogOpen && (
