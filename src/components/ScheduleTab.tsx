@@ -18,9 +18,17 @@ import { weeksOfMonth } from "../lib/weeks";
 import { employmentShortVi } from "../lib/employment";
 import { monthlyTargetMinutesFor, SCHEDULE_SLOT_MINUTES } from "../lib/contract";
 import { StaffingReport } from "./StaffingReport";
-import { PauseLabel } from "./PauseLabel";
 import type { PeakCoverage } from "../lib/analyze";
 import { ruleById, staffingRuleId } from "../lib/rules";
+
+/** „17", „11½" (halbe Stunde), sonst „11:15" – so bleibt die Zelle schmal. */
+function shortTime(minutes: number): string {
+  const h = Math.floor(minutes / 60);
+  const m = minutes % 60;
+  if (m === 0) return String(h);
+  if (m === 30) return `${h}½`;
+  return minutesToTime(minutes);
+}
 
 function isWeekendKey(iso: string): boolean {
   const k = weekdayKeyOf(parseIsoDate(iso));
@@ -250,11 +258,9 @@ export function ScheduleTab({
           <table className="border-collapse text-xs">
             <thead>
               <tr>
-                <th className="sticky left-0 z-20 bg-slate-100 border-b border-r border-slate-200 px-2 py-2 text-left min-w-[130px]">
+                <th className="sticky left-0 z-20 bg-slate-100 border-b border-r border-slate-200 px-1.5 py-1 text-left w-[80px] max-w-[80px]">
                   Nhân viên
                 </th>
-                <th className="bg-slate-100 border-b border-slate-200 px-2 py-2 text-left">Loại</th>
-                <th className="bg-slate-100 border-b border-slate-200 px-2 py-2 text-right">Định mức</th>
                 {gridDates.map((d) => {
                   const day = parseIsoDate(d).getDate();
                   const wk = WEEKDAY_SHORT_VI[weekdayKeyOf(parseIsoDate(d))];
@@ -277,12 +283,12 @@ export function ScheduleTab({
                             ? `Giờ riêng${ov.note ? " · " + ov.note : ""}`
                             : undefined
                       }
-                      className={`border-b border-l border-slate-200 px-1 py-1 text-center min-w-[88px] ${headerBg}`}
+                      className={`border-b border-l border-slate-200 px-0.5 py-1 text-center min-w-[40px] ${headerBg}`}
                     >
                       <div className="font-semibold">{day}</div>
                       <div className="text-[10px] text-slate-500">{wk}</div>
-                      {closed && <div className="text-[9px] text-rose-600 font-medium">Đóng cửa</div>}
-                      {!closed && ov && <div className="text-[9px] text-sky-700 font-medium">Giờ riêng</div>}
+                      {closed && <div className="text-[9px] text-rose-600 font-medium">Đóng</div>}
+                      {!closed && ov && <div className="text-[9px] text-sky-700 font-medium">Riêng</div>}
                     </th>
                   );
                 })}
@@ -301,14 +307,12 @@ export function ScheduleTab({
                 const diff = sum?.diffMinutes ?? -sollMin;
                 return (
                   <tr key={emp.id} className="hover:bg-slate-50/50">
-                    <td className="sticky left-0 z-10 bg-white border-b border-r border-slate-200 px-2 py-1 font-medium whitespace-nowrap">
+                    {/* Nur der Name (gekürzt); Art und Soll stehen im Tab Nhân viên – so passen mehr Tage auf den Schirm. */}
+                    <td
+                      className="sticky left-0 z-10 bg-white border-b border-r border-slate-200 px-1.5 py-1 font-medium w-[80px] max-w-[80px] truncate"
+                      title={`${emp.name} · ${employmentShortVi(emp.employmentType)} · ${minutesToShortHours(sollMin)}`}
+                    >
                       {emp.name}
-                    </td>
-                    <td className="border-b border-slate-100 px-2 py-1 text-slate-500">
-                      {employmentShortVi(emp.employmentType)}
-                    </td>
-                    <td className="border-b border-slate-100 px-2 py-1 text-right text-slate-500">
-                      {minutesToShortHours(sollMin)}
                     </td>
                     {gridDates.map((d) => {
                       const dienste = shiftMap.get(`${emp.id}#${d}`) ?? [];
@@ -317,46 +321,22 @@ export function ScheduleTab({
                         <td
                           key={d}
                           onClick={() => setSelected({ employeeId: emp.id, date: d })}
-                          className={`border-b border-l border-slate-200 px-1 py-1 text-center cursor-pointer align-middle ${cellClass(
+                          className={`border-b border-l border-slate-200 px-0.5 py-1 text-center cursor-pointer align-middle ${cellClass(
                             shift,
                           )}`}
                           title="Bấm để sửa"
                         >
                           {shift ? (
-                            <div className="leading-tight space-y-1">
-                              {dienste.map((x, idx) => {
-                                const isMulti = dienste.length > 1;
-                                const shiftTag = isMulti
-                                  ? idx === 0
-                                    ? "Ca sáng"
-                                    : idx === 1
-                                      ? "Ca chiều"
-                                      : `Ca ${idx + 1}`
-                                  : null;
-                                return (
-                                  <div
-                                    key={x.id}
-                                    className={idx > 0 ? "border-t border-slate-200/90 pt-1 mt-0.5" : ""}
-                                  >
-                                    <div className="font-medium flex items-center justify-center gap-1">
-                                      {shiftTag && (
-                                        <span className="inline-block text-[9px] font-semibold text-slate-600 bg-slate-100/90 border border-slate-300/80 rounded px-1">
-                                          {shiftTag}
-                                        </span>
-                                      )}
-                                      <span>
-                                        {minutesToTime(x.startMinutes)}–{minutesToTime(x.endMinutes)}
-                                      </span>
-                                    </div>
-                                    <div className="text-[10px] opacity-80">
-                                      {minutesToShortHours(x.paidMinutes)} · <PauseLabel shift={x} />
-                                    </div>
-                                  </div>
-                                );
-                              })}
+                            // Kurz: „11:30–15" / „17–22" je Dienst untereinander.
+                            <div className="leading-tight whitespace-nowrap text-[10px] font-medium">
+                              {dienste.map((x) => (
+                                <div key={x.id}>
+                                  {shortTime(x.startMinutes)}–{shortTime(x.endMinutes)}
+                                </div>
+                              ))}
                             </div>
                           ) : (
-                            <span className="text-[11px]">Nghỉ</span>
+                            <span className="text-[10px] text-slate-300">–</span>
                           )}
                         </td>
                       );
@@ -436,12 +416,10 @@ function SummaryRow({
 }) {
   return (
     <tr className="bg-slate-50 text-slate-600">
-      <td className="sticky left-0 z-10 bg-slate-50 border-t border-r border-slate-200 px-2 py-1 font-medium whitespace-nowrap">
+      <td className="sticky left-0 z-10 bg-slate-50 border-t border-r border-slate-200 px-1.5 py-1 font-medium w-[80px] max-w-[80px] text-[10px] leading-tight">
         {label}
         {hint && <span className="ml-1 text-[11px] font-normal text-slate-400">{hint}</span>}
       </td>
-      <td className="border-t border-slate-200" />
-      <td className="border-t border-slate-200" />
       {dates.map((d) => (
         <td key={d} className="border-t border-l border-slate-200 px-1 py-1 text-center">
           {value(d)}
@@ -476,7 +454,7 @@ function CoverageRow({
   return (
     <tr className="bg-slate-50 text-slate-600">
       <td
-        className="sticky left-0 z-10 bg-slate-50 border-t border-r border-slate-200 px-2 py-1 font-medium max-w-[150px] leading-tight"
+        className="sticky left-0 z-10 bg-slate-50 border-t border-r border-slate-200 px-1.5 py-1 font-medium w-[80px] max-w-[80px] text-[10px] leading-tight"
         title={`${hard ? "Luật cứng" : "Luật mềm"}: ${label} ${when}`}
       >
         {label} <span className="text-[11px] font-normal text-slate-400">{when} · người (vắng–đông)</span>
@@ -486,8 +464,6 @@ function CoverageRow({
           {hard ? "cứng" : "mềm"}
         </span>
       </td>
-      <td className="border-t border-slate-200" />
-      <td className="border-t border-slate-200" />
       {dates.map((d) => {
         const list = peaks(d);
         if (!list || list.length === 0) {
