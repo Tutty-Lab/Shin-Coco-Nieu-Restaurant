@@ -489,7 +489,7 @@ function CoverageRow({
   return (
     <tr className="bg-slate-50 text-slate-600">
       <td
-        className="sticky left-0 z-10 bg-slate-50 border-t border-r border-slate-200 px-2 py-1 font-medium whitespace-nowrap"
+        className="sticky left-0 z-10 bg-slate-50 border-t border-r border-slate-200 px-2 py-1 font-medium max-w-[150px] leading-tight"
         title={`${hard ? "Luật cứng" : "Luật mềm"}: ${label} ${when}`}
       >
         {label} <span className="text-[11px] font-normal text-slate-400">{when} · người (vắng–đông)</span>
