@@ -7,28 +7,22 @@ import { RULES, ruleById, staffingRuleId } from "../lib/rules";
 import { explainShortfall } from "../lib/shortfall";
 import { findFixes, issuesOf, type EmployeeChange, type FixResult, type Score, type TrialStore } from "../lib/suggestions";
 
-/** Gestapelter Balken: Anteile als farbige Segmente, darunter die Legende mit Zahlen. */
-function SplitBar({ parts }: { parts: { label: string; value: number; color: string }[] }) {
-  const total = parts.reduce((t, p) => t + p.value, 0);
+/** Eine Zeile je Warnungsart im Popup; Klick klappt die Einzelheiten auf. */
+function WarningGroup({ title, cls, children }: { title: string; cls: string; children: React.ReactNode }) {
+  const [open, setOpen] = useState(false);
   return (
-    <div>
-      <div className="flex h-2.5 overflow-hidden rounded-full bg-slate-100">
-        {total > 0 &&
-          parts
-            .filter((p) => p.value > 0)
-            .map((p) => (
-              <div key={p.label} className={p.color} style={{ width: `${(p.value / total) * 100}%` }} title={`${p.label}: ${p.value}`} />
-            ))}
-      </div>
-      <div className="mt-1.5 flex flex-wrap gap-x-3 gap-y-0.5 text-xs text-slate-600">
-        {parts.map((p) => (
-          <span key={p.label} className="inline-flex items-center gap-1">
-            <span className={`inline-block h-2 w-2 rounded-full ${p.color}`} />
-            {p.label} <b className="text-slate-900">{p.value}</b>
-          </span>
-        ))}
-      </div>
-    </div>
+    <section className="border-t border-slate-100 first:border-t-0">
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        aria-expanded={open}
+        className="flex w-full items-center justify-between gap-3 px-4 py-3 text-left"
+      >
+        <span className={`text-sm font-semibold ${cls}`}>{title}</span>
+        <span className="text-slate-400">{open ? "▾" : "▸"}</span>
+      </button>
+      {open && <div className="px-4 pb-3 text-sm text-slate-700">{children}</div>}
+    </section>
   );
 }
 
@@ -87,16 +81,6 @@ export function Dashboard({
 }) {
   const figures = stores.map((s) => ({ store: s, f: storeFigures(s) }));
   const sum = (pick: (f: ReturnType<typeof storeFigures>) => number) => figures.reduce((t, x) => t + pick(x.f), 0);
-  const perStore = (text: (x: (typeof figures)[number]) => string) =>
-    figures.map((x) => `${x.store.storeConfig.shortName} ${text(x)}`).join(" · ");
-
-  const allEmployees = stores.flatMap((s) => s.schedule.employees);
-  // Wer in mehreren Läden arbeitet (gleicher personKey), ist EIN Mensch.
-  const people = new Set(
-    stores.flatMap((s) => s.schedule.employees.map((e) => e.personKey || `${s.storeId}:${e.id}`)),
-  ).size;
-  const sharedPeople = allEmployees.length - people;
-  const countType = (type: Employee["employmentType"]) => allEmployees.filter((e) => e.employmentType === type).length;
 
   const targetMin = sum((f) => f.targetMin);
   const plannedMin = sum((f) => f.plannedMin);
@@ -148,8 +132,6 @@ export function Dashboard({
     );
   });
 
-  const countStation = (station: NonNullable<Employee["station"]>) =>
-    allEmployees.filter((e) => (e.station ?? "SERVICE") === station).length;
   const multiStore = stores.length > 1;
   const pct = targetMin > 0 ? Math.min(100, Math.round((plannedMin / targetMin) * 100)) : 0;
   const statusPill =
@@ -163,38 +145,8 @@ export function Dashboard({
 
   return (
     <div>
-      {/* Zwei Karten statt acht Zahlenkacheln: Belegschaft und Stunden als Balken. */}
-      <div className="grid gap-2 sm:grid-cols-2">
-        <div className="rounded-lg border border-slate-200 bg-white p-3 shadow-sm">
-          <div className="flex items-baseline justify-between">
-            <span className="text-sm text-slate-500">Nhân viên</span>
-            <span className="text-2xl font-semibold text-slate-900">
-              {people} <span className="text-sm font-normal text-slate-500">người</span>
-            </span>
-          </div>
-          <div className="mt-2 space-y-2.5">
-            <SplitBar
-              parts={[
-                { label: "Toàn TG", value: countType("VOLLZEIT"), color: "bg-slate-700" },
-                { label: "Bán TG", value: countType("TEILZEIT"), color: "bg-slate-400" },
-                { label: "Minijob", value: countType("MINIJOB"), color: "bg-slate-200" },
-              ]}
-            />
-            <SplitBar
-              parts={[
-                { label: "Bồi", value: countStation("SERVICE"), color: "bg-slate-700" },
-                { label: "Bếp", value: countStation("KITCHEN"), color: "bg-slate-300" },
-              ]}
-            />
-          </div>
-          {multiStore && (
-            <div className="mt-1.5 text-[11px] text-slate-400">
-              {perStore((x) => String(x.store.schedule.employees.length))}
-              {sharedPeople > 0 && <> · {sharedPeople} người làm nhiều quán</>}
-            </div>
-          )}
-        </div>
-
+      {/* Eine Karte: verplante Stunden als Balken + Status. */}
+      <div>
         <div className="rounded-lg border border-slate-200 bg-white p-3 shadow-sm">
           <div className="flex items-center justify-between gap-2">
             <span className="text-sm text-slate-500">Giờ đã xếp</span>
@@ -205,22 +157,17 @@ export function Dashboard({
           <div className="mt-1 flex items-baseline gap-1.5">
             <span className="text-2xl font-semibold text-slate-900">{minutesToDecimalHours(plannedMin, 0)}</span>
             <span className="text-sm text-slate-500">/ {hours(targetMin)} định mức</span>
-            <span className={`ml-auto text-sm font-semibold ${uncoveredMin ? "text-amber-600" : "text-slate-500"}`}>
-              {pct}%
-            </span>
           </div>
           {/* Dunkel = verplant, Gelb = fehlt noch (Giờ chưa thể xếp). Farbe nur für Status. */}
           <div className="mt-2 flex h-2.5 overflow-hidden rounded-full bg-slate-100">
             <div className="bg-slate-700" style={{ width: `${pct}%` }} />
             {uncoveredMin > 0 && plannedMin > 0 && <div className="bg-amber-300" style={{ width: `${100 - pct}%` }} />}
           </div>
-          <div className="mt-1.5 text-xs text-slate-600">
-            {notGeneratedCount === stores.length
-              ? "Chưa tạo lịch — bấm Tạo lịch."
-              : uncoveredMin > 0
-                ? <>Còn thiếu <b className="text-amber-700">{hours(uncoveredMin)}</b> chưa xếp được</>
-                : "Đủ giờ cho mọi người"}
-          </div>
+          {uncoveredMin > 0 && notGeneratedCount < stores.length && (
+            <div className="mt-1.5 text-xs text-slate-600">
+              Còn thiếu <b className="text-amber-700">{hours(uncoveredMin)}</b> chưa xếp được
+            </div>
+          )}
           {multiStore && (
             <div className="mt-1 flex flex-wrap gap-x-2 text-[11px] text-slate-400">{storeStatus}</div>
           )}
@@ -314,11 +261,11 @@ function StoreNotes({
     .filter(Boolean)
     .join(" · ");
 
+  // Mỗi loại cảnh báo: MỘT dòng, bấm mới mở danh sách.
   const section = (title: string, cls: string, children: React.ReactNode) => (
-    <section key={title} className="border-t border-slate-100 px-4 py-3 first:border-t-0">
-      <h4 className={`mb-1.5 text-sm font-semibold ${cls}`}>{title}</h4>
-      <div className="text-sm text-slate-700">{children}</div>
-    </section>
+    <WarningGroup key={title} title={title} cls={cls}>
+      {children}
+    </WarningGroup>
   );
 
   return (
