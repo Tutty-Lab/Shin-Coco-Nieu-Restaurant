@@ -9,7 +9,7 @@ import { SavedSchedulesPanel } from "./components/SavedSchedules";
 import { RulesPanel } from "./components/Dashboard";
 import { Dashboard } from "./components/Dashboard";
 import { LockScreen } from "./components/LockScreen";
-import { isAuthenticated } from "./lib/auth";
+import { isAuthenticated, logout } from "./lib/auth";
 import { STORES } from "./lib/stores";
 import type { EmployeeChange } from "./lib/suggestions";
 
@@ -36,10 +36,10 @@ export default function App() {
   const [unlocked, setUnlocked] = useState(() => isAuthenticated());
 
   if (!unlocked) return <LockScreen onUnlock={() => setUnlocked(true)} />;
-  return <MainApp />;
+  return <MainApp onLogout={() => setUnlocked(false)} />;
 }
 
-function MainApp() {
+function MainApp({ onLogout }: { onLogout: () => void }) {
   // Alle Filialen laufen gleichzeitig – jede mit eigenem State, eigener
   // Persistenz und eigener Sync. ANGEZEIGT wird nur der Laden, der in der
   // Reihe unter den Tabs gewählt ist (drei Läden untereinander waren zu lang);
@@ -240,6 +240,7 @@ function MainApp() {
                         ["Luật xếp lịch", () => setPopup("rules")],
                         ["Cài đặt", () => openTab("einstellungen")],
                         ["Tài liệu", () => setDocsOpen(true)],
+                        ["Đăng xuất", () => { logout(); onLogout(); }],
                       ] as const
                     ).map(([label, action]) => (
                       <button
@@ -299,9 +300,33 @@ function MainApp() {
         </div>
       </nav>
 
+      {/* Quán đang xem – một hàng nhãn dùng chung cho mọi tab (thay ô chọn quán ở đầu trang). */}
+      {!docsOpen && (
+        <div className="no-print mx-auto max-w-[1500px] px-3 sm:px-4 mt-3">
+          <div role="tablist" aria-label="Quán" className="inline-flex rounded-lg border border-slate-200 bg-white p-1">
+            {stores.map((s) => {
+              const active = s.storeId === view.storeId;
+              return (
+                <button
+                  key={s.storeId}
+                  type="button"
+                  role="tab"
+                  aria-selected={active}
+                  onClick={() => chooseStore(s.storeId)}
+                  className={`rounded-md px-3 py-1.5 text-sm font-medium ${
+                    active ? "bg-slate-900 text-white" : "text-slate-600 hover:bg-slate-100 hover:text-slate-900"
+                  }`}
+                >
+                  {s.storeConfig.shortName}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
       {genDialogOpen && (
         <GenerateScheduleDialog
-          simple
           initialTarget={thisMonth}
           currentYear={primary.schedule.year}
           currentMonth={primary.schedule.month}

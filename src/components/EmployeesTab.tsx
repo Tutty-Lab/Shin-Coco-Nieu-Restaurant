@@ -20,7 +20,7 @@ const inputClass =
  * bearbeitbar? In der Kunden-Demo aus: sichtbar, aber ausgegraut mit Hinweis.
  * Später einfach auf true setzen.
  */
-const ADVANCED_EDITABLE = false;
+const ADVANCED_EDITABLE = true;
 const STATION_VI: Record<Station, string> = { SERVICE: "Bồi", KITCHEN: "Bếp" };
 
 const FIXED_START_DEFAULT = "06:30";
